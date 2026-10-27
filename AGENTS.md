@@ -5,18 +5,20 @@ hidráulica, estadística, anotaciones, DXF, informes, y la malla y la filtraci�
 finitos.
 
 **Dos niveles de nombre**: *OpenGeoRock* (u *OGR Suite*) es el paraguas de los programas de la
-suite; **OGR Core** es la biblioteca que comparten. La distribución se llama `ogr-core` y el paquete
-de importación, `ogr_core`. La usan **OGR Slip2D** (equilibrio límite) y, más adelante, **OGR
-FEM2D** (elementos finitos).
+suite; **OGR Core** es la biblioteca común. La distribución se llama `ogr-core` y el paquete de
+importación, `ogr_core`. De momento la usa **OGR FEM2D** (elementos finitos); **OGR Slip2D**
+(equilibrio límite), de cuyo núcleo sale, conserva por ahora su propia copia.
 
 Autor y titular del copyright: Samuel Sáez López (UPCT). Licencia AGPL-3.0-or-later.
 
 > Este archivo es el **contrato de trabajo** con cualquier agente de IA. Se consulta antes de cada
 > acción. Deriva del `AGENTS.md` de OGR Slip2D, de donde sale el código.
 
-> **Estado (2026-10-27):** el código llegó de OGR Slip2D (commit `2d68c29`, fase F1 de su spec
-> `spec/features/009-extraer-ogr-core/`). Slip2D aún no depende de este repositorio: lo hará en la
-> fase F3. Hasta entonces, un cambio en `ogr_core` hay que hacerlo en los dos sitios.
+> **Estado (2026-10-27):** el código llegó del núcleo de OGR Slip2D (commit `2d68c29`). **Por
+> decisión del propietario, este es de momento el núcleo de OGR FEM2D; OGR Slip2D conserva su
+> propia copia y no se toca.** Integrar los dos núcleos es una decisión futura. Hasta entonces:
+> cada cambio de aquí se anota en el changelog respecto a `2d68c29`, para que la integración sea
+> posible; y Slip2D y FEM2D no comparten entorno de Python (los dos instalan `ogr_core`).
 
 ---
 
