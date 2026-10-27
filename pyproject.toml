@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ogr-core"
+# Its own series since the extraction (spec 009 of OGR Slip2D, decision P2).
+# The package carried 0.1.0–0.1.37x inside OGR Slip2D before; the changelog
+# of 0.1.0 says which Slip2D commit this one comes from.
+version = "0.1.0"
+description = "OGR Core — shared core of the OpenGeoRock Suite: geometry, materials, project model, DXF, reports, and the finite-element mesh and groundwater seepage"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "AGPL-3.0-or-later"}
+authors = [
+    {name = "Samuel Sáez López", email = "samuel.saez@edu.upct.es"},
+]
+keywords = ["geotechnical", "geometry", "FEM", "seepage", "groundwater"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+
+# Only what ogr_core imports, from the census of spec 009 (2026-10-27):
+# no Qt, no plotting, no CLI. A dependency that only a program uses belongs
+# to that program's pyproject, not here.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.14",
+    "shapely>=2.0",
+    "ezdxf>=1.1",
+    "h5py>=3.10",
+    "reportlab>=4.0",
+]
+
+[project.urls]
+Homepage = "https://opengeorock.org"
+Repository = "https://github.com/samuelsl27/OGR-Core"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ogr_core*"]
+
+[tool.black]
+line-length = 100

@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: tests
+
+on:
+  push:
+    branches: [main, "dev/**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test suite (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor `pyproject.toml` declares, and the job that
+        # matters most: OGR Slip2D's 3.11 job was the only one failing for
+        # five releases (v0.1.70–v0.1.75) on a PEP 701 f-string.
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      # v7: the first majors on `node24` were v5/v6, and v7 is what the
+      # suite vetted so the jump is not due again within the year
+      # (tests/test_ci_actions_v10.py holds the floor).
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install the core
+        # No system libraries: the core has no Qt and no plotting.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run the test suite
+        # The runner exits non-zero when anything fails. PYTHONFAULTHANDLER
+        # prints the Python stack of every thread if the process dies on a
+        # signal.
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: python tests/_runner.py
+
+  licence:
+    name: Licence consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Check SPDX headers and packaging metadata
+        # Runs standalone: it only reads files, so it needs no dependencies
+        # and gives fast feedback on a licence slip. The block scalar (`|`)
+        # is not cosmetic: with a plain scalar YAML folds every line into
+        # one and the heredoc never meets its `PY` terminator.
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "tests")
+          import test_license_v10 as t
+          failed = 0
+          for name in dir(t):
+              if not name.startswith("Test"):
+                  continue
+              inst = getattr(t, name)()
+              for m in dir(inst):
+                  if m.startswith("test_"):
+                      try:
+                          getattr(inst, m)()
+                      except Exception as exc:
+                          failed += 1
+                          print(f"FAIL {name}.{m}: {exc}")
+          print("licence checks failed:", failed)
+          sys.exit(1 if failed else 0)
+          PY
