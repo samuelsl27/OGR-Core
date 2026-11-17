@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "Copy to .claude/settings.local.json (ignored by git) and adjust the",
+    "paths to your machine.",
+    "additionalDirectories gives the agent folders outside this repository;",
+    "a folder mounted in the VS Code workspace is NOT given to the agent by",
+    "that alone. It grants reading AND editing, so each repository this one",
+    "must not change gets a deny rule on Edit (which also covers Write).",
+    "A change in the core is tested against every program (AGENTS.md, rule",
+    "8): the programs are read and run from here, and changed from their own",
+    "windows.",
+    "Use absolute paths. In deny rules, //c/... is C:\\... on Windows."
+  ],
+  "permissions": {
+    "additionalDirectories": [
+      "C:/Samuel/OGR_Suite/Slip2D/OGR-Slip2D",
+      "C:/Samuel/OGR_Suite/FEM2D/OGR-FEM2D"
+    ],
+    "deny": [
+      "Edit(//c/Samuel/OGR_Suite/Slip2D/OGR-Slip2D/**)",
+      "Edit(//c/Samuel/OGR_Suite/FEM2D/OGR-FEM2D/**)"
+    ]
+  }
+}
