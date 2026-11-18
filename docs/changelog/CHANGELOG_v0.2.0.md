@@ -58,14 +58,20 @@ se conserva lo único que era suyo: lo que añadió al runner.
   the same; only the time is not»), así que los números no cambian: cambian el tiempo, once tests
   que comprueban que el pool corrió, y la huella del banco en los ocho casos que abren pool (una
   nota de más). **Hay que arreglarlo en Slip2D antes de pasarlo a un `.venv`** (§4).
-- **Un test de Slip2D es intermitente**, y vino con los cinco: `test_child_model_v1388`,
+- **Un test de Slip2D era intermitente**, y vino con los cinco: `test_child_model_v1388`,
   `test_the_same_sequence`. Compara dos secuencias de llamadas sustituyendo cada objeto devuelto
   por «el paso que lo devolvió primero», con `id()`; cuando un modelo se reconstruye, el anterior
   se libera y el nuevo puede ocupar su dirección, y entonces su `id` es el de un paso viejo. Falló
-  una vez en la suite de Slip2D contra este núcleo y no en las otras corridas; con ruido de memoria
-  entre pasadas, en el Slip2D de verdad y sin tocar, **falla 59 veces de 3000**. No depende del
-  núcleo. Se trae como está y se anota: el arreglo (guardar los objetos mientras dura la
-  secuencia, sin tocar ningún valor) está por decidir.
+  en las dos corridas enteras de la suite de Slip2D contra este núcleo y no en la de `d48e2b3`; con
+  ruido de memoria entre pasadas, en el Slip2D de verdad y sin tocar, **fallaba 59 veces de 3000**.
+  No depende del núcleo. Se trajo como estaba, anotado, y **la primera CI de esta versión lo sacó
+  en Python 3.12 (Linux) las dos veces**, con 676 de 677 y 3.11 y 3.13 en verde: cuatro modelos
+  mostraban tres identidades. Arreglado aquí: los modelos devueltos se guardan mientras dura la
+  secuencia, así que una identidad nombra un solo objeto. Ningún valor esperado cambia. Con el
+  mismo ruido, 0 fallos de 3000, y tres implementaciones mal hechas a propósito (un acierto que
+  reconstruye, una edición en su sitio que no se ve, otro texto en el error) siguen dando otra
+  secuencia. **El de Slip2D sigue como estaba** y necesita el mismo arreglo cuando adopte esta
+  versión.
 - **Una de mis medidas no valía, y lo dijo su procedencia.** Para repetir la huella del banco con
   el mismo intérprete que la de antes puse los dos árboles en `PYTHONPATH`; el orquestador del
   banco reescribe esa variable para cada trabajo, y los 23 casos midieron otra vez el Slip2D de
@@ -95,7 +101,7 @@ se conserva lo único que era suyo: lo que añadió al runner.
 | `ogr_core/testing/runner.py` | Slip2D `d48e2b3`, `tests/_runner.py`, **fusionado** con el de OGR-Core v0.1.0 | Ver §3 |
 | `ogr_core/testing/leaks.py` | Slip2D `d48e2b3`, `tests/_leaks.py` | Ver §3 |
 | Los 34 tests movidos en la v0.1.0 | Slip2D `2d68c29` | En `d48e2b3` siguen byte a byte como estaban en la separación; no cambian |
-| 5 tests nuevos del núcleo | Slip2D `d48e2b3`: `test_child_model_v1388`, `test_strength_reader_v1391`, `test_published_fluxes_v1392`, `test_seepage_element_cache_v1393`, `test_transient_system_reuse_v1394` | Solo cambian sus importaciones de `ogr_fem2d`; ningún valor ni tolerancia. En Slip2D siguen hasta que adopte esta versión |
+| 5 tests nuevos del núcleo | Slip2D `d48e2b3`: `test_child_model_v1388`, `test_strength_reader_v1391`, `test_published_fluxes_v1392`, `test_seepage_element_cache_v1393`, `test_transient_system_reuse_v1394` | Solo cambian sus importaciones de `ogr_fem2d`, y en `test_child_model_v1388` el arreglo de su intermitencia (§0); ningún valor ni tolerancia. En Slip2D siguen hasta que adopte esta versión |
 | Tests del runner y de las fugas (`*_v020.py`) | Slip2D `d48e2b3`: `test_leaks_v1374`, `test_runner_state_v1373`, `test_runner_jobs_v1375`, `test_runner_fast_v1376`, `test_runner_shutdown_v1377`, `test_test_imports_v1372` | Reescritos sobre el runner compartido; `test_runner_dev_core_v020` es nuevo |
 
 Lo que `main` de Slip2D cambió en el núcleo entre la separación (`32cb051`, v0.1.370) y `d48e2b3`,
@@ -325,21 +331,22 @@ los tests `*_v020.py`.
 
 ### Lo que no se ha probado
 
-- **La CI de este repositorio** (Linux, Python 3.11 a 3.13): nada se ha subido todavía. Todo lo de
-  arriba es Windows y Python 3.14.7.
+- **La CI de este repositorio** (Linux, Python 3.11 a 3.13) corrió por primera vez con la PR: 3.11
+  y 3.13 en verde, y 3.12 con un solo fallo, el del test intermitente (§0). Todo lo demás de arriba
+  es Windows y Python 3.14.7.
 - **Instalar desde la etiqueta** (`pip install "ogr-core @ git+…@v0.2.0"`): la etiqueta no existe
   hasta que se apruebe; aquí el núcleo se ha usado desde su árbol.
 - **La suite entera de Slip2D con el runner compartido**: solo `--fast`. Los 37 archivos lentos y
   la corrida en serie quedan para la adopción.
 - **La corrida en serie de Slip2D contra este núcleo**: las de arriba son con `--jobs 4`.
-- **El intermitente**, `test_child_model_v1388`: falló en las dos corridas enteras de la copia y no
-  en la de `d48e2b3` ni solo. El mecanismo está medido (§0), pero no por qué el contexto de la
-  copia lo saca y el del repositorio no.
+- **Por qué el contexto saca el intermitente**: falló en las corridas enteras de la copia y en
+  Python 3.12 de Linux, y no en la de `d48e2b3` ni solo. El mecanismo está medido (§0) y el
+  arreglo no depende de saberlo, pero no se ha averiguado qué del contexto decide la dirección.
 
 ## 6. Queda abierto
 
 - `ogr_core/report` y matplotlib (§0): el núcleo usa una librería que no declara.
-- El arreglo del test intermitente, aquí y en Slip2D.
+- El arreglo del test intermitente en Slip2D (aquí está hecho).
 - La versión de desarrollo en `main` (`0.3.0.dev0`) tras etiquetar, que es lo que da sentido a
   `--dev-core`: es parte de la forma de trabajar, que se escribe después. Con ella hay que decidir
   qué changelog pide `test_version_consistency_v10` a una `.devN` (hoy pide uno con el nombre

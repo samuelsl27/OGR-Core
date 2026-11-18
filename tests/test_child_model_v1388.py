@@ -72,13 +72,16 @@ def _old_child_model(self, key, entry):
     return cached[2]
 
 
-def _answer(call):
+def _answer(call, alive):
     """What a call gives: the model's class and parameters, or the
-    exception's type and message."""
+    exception's type and message. The model goes into ``alive``: its
+    identity is compared below, and an identity is only a name while the
+    object lives (see :func:`_drive`)."""
     try:
         m = call()
     except Exception as exc:  # noqa: BLE001 - compared, not swallowed
         return ("raises", type(exc).__name__, str(exc))
+    alive.append(m)
     return ("model", type(m).__name__, dict(m.params), id(m))
 
 
@@ -87,9 +90,18 @@ def _drive(child_model):
     with object identities replaced by the step that first returned them."""
     ga = _ga()
     seen, out = {}, []
+    # OGR Core 0.2.0 -- every model returned is kept alive until the sequence
+    # ends. Without this the test was intermittent: a rebuilt child frees the
+    # model it replaces, the next one built can be given the same address,
+    # and ``id()`` then names it as the step that returned the OLD one. In
+    # OGR Slip2D, as written there, the comparison failed 59 times in 3000
+    # with other allocations in between, and every time on Python 3.12 in
+    # this repository's CI (Linux), where four models showed three
+    # identities. No expected value changes: only what an identity means.
+    alive: list = []
 
     def step(key, entry):
-        a = _answer(lambda: child_model(ga, key, entry))
+        a = _answer(lambda: child_model(ga, key, entry), alive)
         if a[0] == "model":
             a = a[:3] + (seen.setdefault(a[3], len(seen)),)
         out.append(a)
