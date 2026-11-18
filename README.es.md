@@ -6,19 +6,21 @@ malla y el solver de filtración por elementos finitos.
 
 [English version](README.md)
 
-> **Estado: primera versión, 0.1.0.** El código viene del núcleo de
-> [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) (su commit `2d68c29`).
+> **Estado: 0.2.0.** El código es el núcleo de
+> [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) tal como estaba en ese programa en su commit
+> `d48e2b3` (v0.1.471), con su malla y su filtración por elementos finitos dentro de `ogr_core.fem`.
+> Es la primera versión pensada para todos los programas de la suite.
 
 ## Quién lo usa
 
 | Programa | Relación con este núcleo |
 |---|---|
 | OGR FEM2D (en preparación): análisis geotécnico 2D por elementos finitos | **Es su núcleo.** Fija una versión etiquetada |
-| [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D): estabilidad de taludes 2D por equilibrio límite | **Conserva por ahora su propia copia**, de la que salió este repositorio. Si los dos se unen, y cuándo, se decidirá más adelante |
+| [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D): estabilidad de taludes 2D por equilibrio límite | De donde sale este código. Hasta su v0.1.471 lleva su propia copia del núcleo (y un paquete llamado `ogr_fem2d`, que ahora es `ogr_core.fem`); toma la `v0.2.0` de este repositorio a partir de la versión siguiente |
 
-Hasta entonces hay dos copias del núcleo, y cada cambio de este se anota en el changelog respecto a
-ese punto de partida. Slip2D y un programa construido sobre este núcleo no deben compartir un entorno
-de Python: los dos instalan un paquete llamado `ogr_core`.
+Un Slip2D hasta la v0.1.471 y un programa construido sobre este núcleo no deben compartir un entorno
+de Python: los dos instalan un paquete llamado `ogr_core`, y ese Slip2D instala además uno llamado
+`ogr_fem2d`, que es el nombre del paquete del programa de elementos finitos.
 
 ## Instalar para desarrollar
 

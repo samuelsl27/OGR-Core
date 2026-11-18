@@ -44,8 +44,10 @@ from enum import Enum
 
 
 from .permeability_models import (  # noqa: E402
+    SUCTION_UNIT,
     PermeabilityModel,
     SimpleSoilType,
+    _MODEL_FUNCS,
     library_for,
 )
 
@@ -180,7 +182,8 @@ class HydraulicProperties:
         ``kr_min`` so the conductivity matrix stays non-singular in very
         dry zones, which is what keeps the Picard iteration solvable.
         """
-        from .permeability_models import _MODEL_FUNCS
+        # v0.1.393 (V14 of the compute audit) -- imported with the module:
+        # a transient's kr reads this for every element of every pass.
         func = _MODEL_FUNCS.get(self.model)
         if func is None:
             return 1.0
@@ -320,8 +323,7 @@ class HydraulicProperties:
 
     def suction_unit(self) -> str:
         """'m' or 'kPa': the unit this model's suction is written in."""
-        from .permeability_models import SUCTION_UNIT
-        return SUCTION_UNIT.get(self.model, "m")
+        return SUCTION_UNIT.get(self.model, "m")   # v0.1.393 (V14): see above
 
     def kr_at_pressure_head(self, pressure_head: float,
                             gamma_w: float) -> float:
@@ -518,6 +520,9 @@ class HydraulicProperties:
 
     @classmethod
     def from_dict(cls, d: dict) -> "HydraulicProperties":
+        # v0.1.437 (D414) -- a value this build does not know is said by its
+        # code (``ogr_core.file_messages``)
+        from ..file_messages import read_enum
         # NOT the dataclass default (3.6 since v0.1.200): a file without
         # vg_alpha was written when the default was 0.036, evaluated as 1/m,
         # and loading must keep what it meant.
@@ -528,8 +533,8 @@ class HydraulicProperties:
             k1_angle_deg=float(d.get("k1_angle_deg", 0.0)),
             model=_model_from_dict(d),
             kr_min=float(d.get("kr_min", 1.0e-6)),
-            simple_soil_type=SimpleSoilType(
-                d.get("simple_soil_type", "general")),
+            simple_soil_type=read_enum(
+                SimpleSoilType, d.get("simple_soil_type", "general")),
             bc_lambda=float(d.get("bc_lambda", 0.6)),
             bc_psi_b=float(d.get("bc_psi_b", 30.0)),
             fx_a=float(d.get("fx_a", 50.0)),

@@ -6,19 +6,21 @@ finite-element mesh and groundwater seepage solver.
 
 [Versión en español](README.es.md)
 
-> **Status: first version, 0.1.0.** The code comes from the core of
-> [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) (its commit `2d68c29`).
+> **Status: 0.2.0.** The code is the core of
+> [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) as it stood in that program at its commit
+> `d48e2b3` (v0.1.471), with its finite-element mesh and seepage inside `ogr_core.fem`. It is the
+> first version meant for every program of the suite.
 
 ## Who uses it
 
 | Program | Relation to this core |
 |---|---|
 | OGR FEM2D (in preparation) — 2D geotechnical finite-element analysis | **Its core.** It pins a tagged version |
-| [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) — 2D slope stability by limit equilibrium | **Keeps its own copy for now**, which this repository started from. Whether and when the two become one is a later decision |
+| [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) — 2D slope stability by limit equilibrium | Where this code comes from. Up to its v0.1.471 it carries its own copy of the core (and a package named `ogr_fem2d`, now `ogr_core.fem`); it takes this repository's `v0.2.0` from the version after that |
 
-Until then there are two copies of the core, and every change here is recorded in the changelog
-against that starting point. Slip2D and a program built on this core must not share a Python
-environment: both install a package named `ogr_core`.
+A Slip2D up to v0.1.471 and a program built on this core must not share a Python environment: both
+install a package named `ogr_core`, and that Slip2D also installs one named `ogr_fem2d`, the name
+of the finite-element program's own package.
 
 ## Install for development
 

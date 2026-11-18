@@ -14,11 +14,11 @@ Autor y titular del copyright: Samuel Sáez López (UPCT). Licencia AGPL-3.0-or-
 > Este archivo es el **contrato de trabajo** con cualquier agente de IA. Se consulta antes de cada
 > acción. Deriva del `AGENTS.md` de OGR Slip2D, de donde sale el código.
 
-> **Estado (2026-10-27):** el código llegó del núcleo de OGR Slip2D (commit `2d68c29`). **Por
-> decisión del propietario, este es de momento el núcleo de OGR FEM2D; OGR Slip2D conserva su
-> propia copia y no se toca.** Integrar los dos núcleos es una decisión futura. Hasta entonces:
-> cada cambio de aquí se anota en el changelog respecto a `2d68c29`, para que la integración sea
-> posible; y Slip2D y FEM2D no comparten entorno de Python (los dos instalan `ogr_core`).
+> **Estado (2026-11-18, v0.2.0):** el código es el núcleo de OGR Slip2D en su commit `d48e2b3`
+> (v0.1.471), con su malla y su filtración dentro de `ogr_core/fem/`, más el runner de la suite.
+> Con la v0.2.0 el núcleo vuelve a ser uno: OGR FEM2D la fija, y OGR Slip2D la adopta en la versión
+> que sigue a su v0.1.471 (hasta entonces lleva su propia copia, y un Slip2D así no comparte entorno
+> de Python con otro programa). De dónde sale cada parte: `docs/changelog/CHANGELOG_v0.2.0.md`.
 
 ---
 
@@ -29,17 +29,24 @@ Autor y titular del copyright: Samuel Sáez López (UPCT). Licencia AGPL-3.0-or-
   **Resultados**: h5py.
 - **Sin Qt** y sin gráficas: el núcleo se importa desde un script, un cuaderno o un test sin
   arrastrar ninguna interfaz.
-- **Tests**: el runner de la suite, que vive aquí (`ogr_core/testing/runner.py`) y que usan también
-  los programas; aporta un `pytest` simulado. **No** hay pytest real instalado.
+- **Tests**: el runner de la suite, que vive aquí (`ogr_core/testing/`: `runner.py` y la
+  comprobación de fugas de estado, `leaks.py`) y que usan también los programas; aporta un `pytest`
+  simulado. **No** hay pytest real instalado.
 
 ## Comandos
 
 ```bash
-python tests/_runner.py          # toda la suite
+python tests/_runner.py          # toda la suite (lo que corre la CI)
 python tests/_runner.py geometry # solo los archivos que contengan eso
 python tests/_runner.py -k erfc  # solo los tests con ese nombre
+python tests/_runner.py --jobs 4 # en cuatro procesos
 pip install -e .                 # instalar en editable
 ```
+
+Una ejecución filtrada lo dice antes y después de sus totales (`FILTERED RUN`) y no es evidencia
+para publicar. Tampoco lo es la de un programa lanzada con `--dev-core`, que es como se prueba un
+programa contra un núcleo que está cambiando (versión `X.Y.Z.devN` posterior a la que fija): sin
+esa opción, el runner del programa se niega.
 
 Para desarrollar un programa contra este núcleo, se instalan los dos en editable: primero este
 repositorio y después el del programa. El runner del programa dice en su cabecera de qué árbol, de
@@ -72,7 +79,10 @@ Son las de OGR Slip2D. Cada una existe porque su ausencia causó un problema rea
 3. **Toda acción debe ser alcanzable desde un menú.** Aquí no hay menús: la cumple cada programa con
    lo que ofrece del núcleo.
 4. **Cada archivo lleva su cabecera de licencia** (SPDX AGPL-3.0-or-later y copyright).
-5. **Los tests no filtran estado**: lo global (unidades, cachés de módulo) se restaura.
+5. **Los tests no filtran estado**: lo global (unidades, cachés de módulo) se restaura. Lo comprueba
+   el runner archivo a archivo: lo que un archivo deja cambiado sale como `✗ [LEAK]` y hace fallar
+   la corrida. Se arregla en el test; a la lista blanca solo va lo que no es del test, con su porqué
+   (la de la suite, en `ogr_core/testing/leaks.py`; la de cada programa, en su `tests/_runner.py`).
 6. **Las anomalías se reportan ANTES de corregirlas**, con la evidencia.
 7. **Ningún ajuste puede no hacer nada**: toda opción lleva el test que demuestra que mueve el
    número.

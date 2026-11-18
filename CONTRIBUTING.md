@@ -21,7 +21,12 @@ python tests/_runner.py
 The runner exits non-zero if anything fails, which is what CI checks. While working on one area,
 run only that part (`python tests/_runner.py geometry`, `-k erfc`, `--list`). A pattern that matches
 nothing **exits 2**, and a filtered run prints a `FILTERED RUN` warning around its totals: before
-opening a pull request, run the suite with no arguments.
+opening a pull request, run the suite with no arguments (`--jobs 4` runs it in four processes).
+
+A test file that leaves something changed in the process (an environment variable, the working
+folder, an attribute of a module) **fails the run even when its tests pass**: the runner names it
+with `✗ [LEAK]`. Put it back in the test; the allow-list in `ogr_core/testing/leaks.py` is only for
+what is not the test's doing, and every entry says why.
 
 **A change here is tested in the programs too.** Before a release is tagged, the full suite of every
 program that will pin it must pass against it (rule 8 of [`AGENTS.md`](AGENTS.md)).

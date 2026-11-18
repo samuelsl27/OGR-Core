@@ -52,6 +52,7 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
+from . import messages as M
 from .primitives import Polyline, Vertex
 
 
@@ -79,20 +80,22 @@ def expand_shrink_external(
 ) -> ExpandShrinkResult:
     """Main entry point. See module docstring for the algorithm."""
     if not external.closed:
-        raise ExpandShrinkError("External must be a closed polyline.")
+        # v0.1.434 (D412) -- each refusal carries its code: ``str(exc)`` is
+        # the English it was, the window says it in the reader's language
+        raise ExpandShrinkError(M.geometry_message(M.EXTERNAL_NOT_CLOSED))
     ext_verts = list(external.vertices)
     # Normalise: drop a duplicated last = first vertex if present
     if ext_verts and ext_verts[0] == ext_verts[-1]:
         ext_verts = ext_verts[:-1]
     if len(ext_verts) < 3:
-        raise ExpandShrinkError("External has too few vertices.")
+        raise ExpandShrinkError(M.geometry_message(M.EXTERNAL_TOO_FEW))
     # Ensure CCW for predictable arc walking
     if _signed_area(ext_verts) < 0:
         ext_verts = list(reversed(ext_verts))
 
     pl_verts = list(polyline.vertices)
     if len(pl_verts) < 2:
-        raise ExpandShrinkError("Polyline needs at least 2 vertices.")
+        raise ExpandShrinkError(M.geometry_message(M.POLYLINE_TOO_FEW))
 
     # Locate where first and last points of the polyline lie on the External
     first = pl_verts[0]
@@ -101,9 +104,7 @@ def expand_shrink_external(
     cut2 = _locate_on_perimeter(ext_verts, last, tolerance)
     if cut1 is None or cut2 is None:
         raise ExpandShrinkError(
-            "Both endpoints of the polyline must lie on the External "
-            "Boundary (use snap — green cross)."
-        )
+            M.geometry_message(M.ENDPOINTS_OFF_EXTERNAL))
 
     # Replace the literal first/last points with the exact snap locations
     pl_verts[0] = Vertex(cut1.x, cut1.y)
@@ -162,11 +163,7 @@ def expand_shrink_external(
             removed_verts = [cut1_v] + arc_fwd + [cut2_v]
         # Sanity: result must be strictly larger than original
         if abs(_signed_area(new_verts)) < orig_area * 0.99:
-            raise ExpandShrinkError(
-                "Expand produced a smaller polygon — intermediate "
-                "points are probably INSIDE the External. Use Shrink, "
-                "or redraw with points outside."
-            )
+            raise ExpandShrinkError(M.geometry_message(M.EXPAND_SMALLER))
     else:
         # Shrink: discard the SHORTER arc (the reference's rule).
         len_fwd = _arc_length([cut1_v] + arc_fwd + [cut2_v])
@@ -182,7 +179,13 @@ def expand_shrink_external(
     # Ensure CCW and build Polyline
     if _signed_area(new_verts) < 0:
         new_verts = list(reversed(new_verts))
-    new_pline = Polyline(vertices=_dedupe(new_verts), closed=True)
+    # v0.1.415 (D353) — the two cut points are vertices of the new External
+    # whatever the shape, and where the polyline leaves the old edge in its
+    # own direction they are no corner: expanding the demo to the right left
+    # (50, 0) and (50, 15) on its new bottom and top edges. Dropped when they
+    # lie on the segment of their neighbours; any other vertex is the user's.
+    new_verts = _drop_straight(_dedupe(new_verts), (cut1_v, cut2_v))
+    new_pline = Polyline(vertices=new_verts, closed=True)
 
     removed_arc = None
     if len(removed_verts) >= 2:
@@ -360,6 +363,36 @@ def _splice(a, b):
     return list(a) + list(b)
 
 
+def _drop_straight(verts: List[Vertex], candidates) -> List[Vertex]:
+    """``verts`` (a closed ring) without those of ``candidates`` that lie
+    on the segment between their two neighbours.
+
+    The test is relative to the ring's size (the project's rule for
+    geometric tolerances): the distance to the neighbours' line under 1e-9
+    of the bounding-box diagonal, and the point between them, so that a
+    spike back along the same line is kept. Area and shape do not change.
+    """
+    from .cleanup import _perpendicular_distance
+
+    xs = [v.x for v in verts]
+    ys = [v.y for v in verts]
+    tol = 1e-9 * math.hypot(max(xs) - min(xs), max(ys) - min(ys))
+    out = list(verts)
+    for c in candidates:
+        if len(out) <= 3:
+            break
+        for i, v in enumerate(out):
+            if abs(v.x - c.x) > tol or abs(v.y - c.y) > tol:
+                continue
+            a, b = out[i - 1], out[(i + 1) % len(out)]
+            between = ((v.x - a.x) * (b.x - v.x)
+                       + (v.y - a.y) * (b.y - v.y)) > 0.0
+            if between and _perpendicular_distance(v, a, b) <= tol:
+                del out[i]
+            break
+    return out
+
+
 def _dedupe(verts: List[Vertex], tol: float = 1e-9) -> List[Vertex]:
     """Drop consecutive duplicate vertices."""
     out: List[Vertex] = []
@@ -405,7 +438,7 @@ def apply_expand_shrink(project, polyline: Polyline, *,
 
     ext = project.external_boundary()
     if ext is None:
-        raise ExpandShrinkError("The model has no External boundary.")
+        raise ExpandShrinkError(M.geometry_message(M.NO_EXTERNAL))
     result = expand_shrink_external(ext.polyline, polyline, tolerance)
     idx = project.boundaries.index(ext)
     project.boundaries[idx] = dataclasses.replace(
@@ -433,7 +466,7 @@ def apply_external_offset(project, distance: float) -> Polyline:
 
     ext = project.external_boundary()
     if ext is None:
-        raise ExpandShrinkError("The model has no External boundary.")
+        raise ExpandShrinkError(M.geometry_message(M.NO_EXTERNAL))
     new_poly = offset_polygon(ext.polyline, distance)
     new_poly = dataclasses.replace(new_poly, id=ext.polyline.id)
     idx = project.boundaries.index(ext)
