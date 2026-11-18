@@ -16,6 +16,17 @@ Moved with the runner from OGR Slip2D's ``test_runner_exit_v1203``
   module has its own ``Skipped`` class, and the first run of v0.1.205 on
   GitHub ended at 83 % because the running copy only caught its own.
 
+* **an ``async def`` test fails instead of passing empty** (Slip2D
+  v0.1.194): calling it returns a coroutine without running a line of its
+  body, and until then that return value was ignored, so it counted as a
+  pass — a green test that tested nothing. The failure says what to do, the
+  body does not run, and the coroutine is closed rather than left to warn
+  when it is collected. This one did NOT travel with the runner: in Slip2D
+  it lives in a test about something else (``test_rules_moved_v1194``), so
+  neither the list of 0.1.0 nor that of 0.2.0 saw it, and the runner's code
+  stood here with no test until OGR Slip2D's adoption census found the gap
+  (its spec 010).
+
 And one new, from moving the runner into the core's distribution:
 
 * **importing ``ogr_core.testing.runner`` does not install the fake
@@ -24,11 +35,18 @@ And one new, from moving the runner into the core's distribution:
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import gc
 import importlib.util
+import io
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
+import warnings
 from pathlib import Path
 
 from ogr_core.testing import runner as _R
@@ -57,9 +75,23 @@ def _another_copy():
 _OTHER = _another_copy()
 
 
+#: What the bodies of the async cases below leave behind when they run.
+_RAN: list = []
+
+
+async def _the_async_part():
+    _RAN.append("the async part")
+
+
 class _Cases:
     def test_exits(self):
         sys.exit(2)
+
+    async def test_is_async(self):
+        _RAN.append("the body of an async test")
+
+    def test_drives_the_async_part(self):
+        asyncio.run(_the_async_part())
 
     def test_skips(self):
         _R._FakePytest.skip("the bank is not on this machine")
@@ -132,6 +164,73 @@ class TestASkipIsNeitherAPassNorAFailure:
         loop = src[src.index("for m_name, m in methods:"):]
         assert "run_test(cls, m)" in loop[:400]
         assert "except Exception" not in loop[:800]
+
+
+#: One async test and one plain one, for a whole run.
+_ASYNC_FILE = '''
+import os
+
+MARK = {mark!r}
+
+
+class TestA:
+    async def test_async_one(self):
+        open(MARK, "w").close()
+
+    def test_plain(self):
+        pass
+'''
+
+
+class TestAnAsyncTestFailsInsteadOfPassingEmpty:
+    def test_it_fails_and_says_what_to_do(self):
+        outcome, why, tb = _R.run_test(_Cases, _Cases.test_is_async)
+        assert outcome == "failed", (outcome, why)
+        assert why.startswith("TypeError: test_is_async is `async def`"), why
+        assert "asyncio.run" in why, why
+        assert tb is not None
+
+    def test_its_body_never_ran(self):
+        del _RAN[:]
+        _R.run_test(_Cases, _Cases.test_is_async)
+        assert _RAN == [], _RAN
+
+    def test_the_coroutine_is_closed_not_left_to_warn(self):
+        # A coroutine nobody awaited warns when it is collected ("coroutine
+        # ... was never awaited"): after the failure there must be none.
+        with warnings.catch_warnings(record=True) as seen:
+            warnings.simplefilter("always")
+            _R.run_test(_Cases, _Cases.test_is_async)
+            gc.collect()
+        left = [str(w.message) for w in seen if "never awaited" in str(w.message)]
+        assert left == [], left
+
+    def test_a_plain_test_that_drives_the_async_part_passes(self):
+        del _RAN[:]
+        assert _R.run_test(_Cases, _Cases.test_drives_the_async_part) == (
+            "passed", None, None)
+        assert _RAN == ["the async part"], _RAN
+
+    def test_in_a_whole_run_it_is_a_failure_and_the_run_is_red(self):
+        folder = Path(tempfile.mkdtemp(prefix="ogr_test_async_"))
+        mark = folder / "the-async-body-ran"
+        (folder / "test_async_synthetic_v020.py").write_text(
+            _ASYNC_FILE.format(mark=str(mark)), encoding="utf-8")
+        saved_path = list(sys.path)
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = _R.main(folder)
+            ran = mark.exists()
+        finally:
+            sys.path[:] = saved_path
+            sys.modules.pop("test_async_synthetic_v020", None)
+            shutil.rmtree(folder, ignore_errors=True)
+        out = buf.getvalue()
+        assert code == 1, out
+        assert "Total: 2    Passed: 1    Failed: 1" in out, out
+        assert "✗ test_async_one: TypeError: test_async_one is `async def`"             in out, out
+        assert not ran, "the body of the async test ran"
 
 
 def _fresh(code: str) -> str:
