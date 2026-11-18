@@ -5,6 +5,7 @@ Affine transformations & advanced geometric operations on boundaries.
 
 Adds the following to the geometry core:
     - translate(b, dx, dy)
+    - copy_boundary(b, dx, dy)             (a new boundary: new ids)
     - rotate(b, pivot, angle_deg)
     - scale(b, pivot, sx, sy)
     - offset_polygon(polyline, distance)   (expand/shrink)
@@ -20,8 +21,9 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 from typing import Iterable
+from uuid import uuid4
 
-from .boundary import Boundary
+from .boundary import Boundary, boundary_has_given_name
 from .boundary_type import BoundaryType
 from .primitives import Polyline, Vertex
 
@@ -30,9 +32,32 @@ from .primitives import Polyline, Vertex
 # Basic affine transformations
 # ----------------------------------------------------------------------
 def translate(b: Boundary, dx: float, dy: float) -> Boundary:
-    """Return a copy of ``b`` shifted by (dx, dy)."""
+    """Return a copy of ``b`` shifted by (dx, dy).
+
+    The copy keeps both ids, ``Boundary.id`` and ``Polyline.id``: it is the
+    same boundary moved, so what points at it still does. A copy that is a
+    second boundary is ``copy_boundary``.
+    """
     new = deepcopy(b)
     new.polyline.vertices = [Vertex(v.x + dx, v.y + dy) for v in b.polyline.vertices]
+    return new
+
+
+def copy_boundary(b: Boundary, dx: float, dy: float) -> Boundary:
+    """Return a NEW boundary: ``b`` shifted by (dx, dy), with an id of its
+    own and a polyline id of its own.
+
+    A boundary carries two ids, its own (``Boundary.id``, what materials,
+    undo and the agent resolve) and its polyline's (``Polyline.id``, written
+    to the ``.ogr``). Each must name one object of the model. v0.1.456
+    (D425) -- the window's Copy Boundary renewed only the first (since
+    v0.1.59), so the copy and the original shared a polyline id; the
+    agent's copy renewed both (since v0.1.196). The two ask this now; each
+    keeps its own offset (the window 2, 2; the agent its ``dx`` and ``dy``).
+    """
+    new = translate(b, dx, dy)
+    new.id = str(uuid4())
+    new.polyline.id = str(uuid4())
     return new
 
 
@@ -81,7 +106,9 @@ def offset_polygon(polyline: Polyline, distance: float) -> Polyline:
     be filtered by Geometry Cleanup afterwards.
     """
     if not polyline.closed or len(polyline) < 3:
-        raise ValueError("offset_polygon requires a closed polygon with ≥3 vertices")
+        # v0.1.434 (D412) -- with its code; ``str(exc)`` is the English
+        from .messages import OFFSET_NEEDS_POLYGON, geometry_message
+        raise ValueError(geometry_message(OFFSET_NEEDS_POLYGON))
 
     verts = list(polyline.vertices)
     # Enforce CCW so that "outward" (positive distance) means expanding
@@ -160,7 +187,8 @@ def convert_boundary(boundary: Boundary, new_type: BoundaryType) -> Boundary:
 
     Resets the type-dependent colour to the new type's default if the
     current colour matched the old default (so user-picked colours are
-    preserved).
+    preserved), and the name likewise: the new type's name replaces a
+    default one, and a name the user gave is kept (v0.1.455).
     """
     new = deepcopy(boundary)
     old_default = boundary.btype.default_color
@@ -200,7 +228,15 @@ def convert_boundary(boundary: Boundary, new_type: BoundaryType) -> Boundary:
     if (new_type != BoundaryType.BLOCK_SEARCH_OBJECT
             or boundary.btype != BoundaryType.BLOCK_SEARCH_OBJECT):
         new.block_object = None
-    new.name = new_type.display_name
+    # v0.1.455 (D410, the owner's decision in its review) -- only a default
+    # name (a type's English one, the name a boundary is born with) becomes
+    # the new type's; any other is kept: the user's, and the few the
+    # program writes (Expand/Shrink's original ground). Until then this
+    # overwrote every name: a water table named «Phreatic 2024» converted
+    # into a water table came back «Water Table», through the Edit menu and
+    # the agent (the context menu did not come through here).
+    if not boundary_has_given_name(boundary):
+        new.name = new_type.display_name
     return new
 
 

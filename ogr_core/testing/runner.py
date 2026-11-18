@@ -18,7 +18,14 @@ and every program run their suites with ONE runner: three copies would
 drift, and a runner that behaves differently in each repository is a
 measurement that means something different in each. Every repository keeps
 a thin ``tests/_runner.py`` that says which packages are its OWN, which it
-takes SHARED from another tree and at what version, and calls :func:`cli`.
+takes SHARED from another tree and at what version, what it adds to a run,
+and calls :func:`cli`.
+
+OGR Core 0.2.0 brought it level with Slip2D's runner of v0.1.471, which had
+kept growing on its own after 0.1.0 was cut: the leak check after every file
+(:mod:`ogr_core.testing.leaks`), the run in chunks, the slow list, and the
+exit code that is the verdict. What 0.1.0 had added here (own and shared
+packages, the pinned version, the hooks, a worktree's commit) is kept.
 
 Running a part of it
 --------------------
@@ -61,23 +68,104 @@ v0.1.84 survives the extraction: no run measures a tree it does not say.
 The practical rule that follows: **run diagnostics from inside the tree you
 mean to measure**, and check the ``tree:`` and ``shared:`` lines rather than
 assuming.
+
+A core that is being changed
+----------------------------
+
+    python tests/_runner.py --dev-core               # against X.Y.Z.devN
+
+Between two tags the core's ``main`` says a development version
+(``0.3.0.dev0``), and a program that pins ``0.2.0`` is refused against it:
+that is the pin working. ``--dev-core`` is how a program's suite is run on
+purpose against the core as it is being changed, which is what a change of
+the core needs before it is merged. It accepts a shared package only when
+its version is a ``.devN`` of a release LATER than the pinned one — never an
+older core, never another release — and the run says ``DEV CORE`` before and
+after its totals, as a filtered run does: it is not evidence for a release
+of the program. With nothing to accept it stops with code 2 (rule 7: an
+option that did nothing would read as a check that passed).
+
+What a file leaves behind
+-------------------------
+
+After every file the runner puts back ``sys.path`` and the folders the run
+gave itself, and names anything else the file left changed in the process
+(``✗ [LEAK] key: before → after``): the file fails the run even if its
+tests passed. See :mod:`ogr_core.testing.leaks` for what is looked at and
+what is allowed; a program adds its own allow-list through ``allowed``.
+
+Running in chunks
+-----------------
+
+    python tests/_runner.py --jobs 4                 # four processes
+    python tests/_runner.py --jobs 4 --list          # the plan, run nothing
+
+The selection is cut into contiguous pieces of the alphabetical order,
+balanced by how long each file took last time, and each piece runs in a
+process of its own with this same loop: the same leak check, the same
+progress lines. The output is printed in order, as a serial run would print
+it. Files with a module-level ``SERIAL_LANE = True`` (they compare with the
+clock) run after the chunks, alone. A chunk that dies cannot leave a green
+run behind: the run passes only if every chunk ends with its code, every
+selected file reports its end, and the tests run are the tests declared
+(see :func:`partition` and ``_run_jobs``). Without ``--jobs`` nothing
+changes, and that serial run is what CI executes.
+
+A repository that sets ``serial_every`` (OGR Slip2D: 100, its owner's
+decision of v0.1.376) releases with the whole suite in chunks and runs it in
+series once every that many commits. A green serial run records its commit
+in the temporary folder, and every whole run in chunks ends saying how many
+commits ago that was, or ``SERIAL RUN DUE``. Only the serial run keeps the
+whole suite in one process, as Slip2D's abort of v0.1.302 needed in order
+to show.
+
+Leaving the slow files out
+--------------------------
+
+    python tests/_runner.py --fast --jobs 4          # what development runs
+    python tests/_runner.py --write-slow-list        # rewrite tests/_slow.txt
+
+``--fast`` leaves out the files listed in ``tests/_slow.txt`` and says so
+before and after the totals, as any filtered run does: it is not evidence
+for a release. Whole files and not single tests, because a file's tests
+share what is expensive: leave out the test that paid for it and the next
+one pays (measured in Slip2D v0.1.376: 19.3 min instead of 11). The list is
+versioned and written on purpose, from each file's last measured seconds; a
+run never rewrites it, so a new slow file stays in ``--fast`` until someone
+decides otherwise. A whole run names the files of twice the threshold it
+leaves in.
+
+What is kept on the machine
+---------------------------
+
+A repository's runner gives the run a ``label`` (``ogr-slip2d``), and the
+last seconds of each file and of each test, and the serial record, are kept
+under that name in the temporary folder: they describe this machine, not the
+code. A run with no label — the throwaway folders the runner's own tests
+run — keeps nothing.
 """
 from __future__ import annotations
 
 import argparse
 import ast
+import codecs
 import gc
 import importlib.util
 import inspect
+import json
 import math
+import os
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import traceback
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Mapping, Optional
 
 
 # --- pytest compatibility shim ----------------------------------------
@@ -163,22 +251,32 @@ def install_pytest_shim() -> None:
 # --- What a repository adds around a run ------------------------------
 @dataclass(frozen=True)
 class Hooks:
-    """What a program adds to a run, called by :func:`main`.
+    """What a program adds to a run.
 
-    ``before_run`` is called once, after the trees have been checked and
-    before anything is selected or loaded: it imports from the tree just
-    checked, which is why it cannot run earlier. ``before_file`` is called
-    before each file, ahead of the runner's own ``gc.collect()``.
+    ``before_run`` is called by :func:`main` once, after the trees have been
+    checked and before anything is selected or loaded: it imports from the
+    tree just checked, which is why it cannot run earlier. ``before_file``
+    is called before each file, ahead of the runner's own ``gc.collect()``.
+    ``after_run`` is called by :func:`cli` — the command line, never an
+    inner ``main()`` — once the run has printed everything and the streams
+    are empty, just before the process ends.
 
-    OGR Slip2D's interface uses both for ``gc_guard`` (v0.1.302: cyclic
-    garbage holding Qt objects is freed on the main thread, not by whichever
-    thread trips the collector), and ``before_run`` also gives the run its
-    own bridge and settings folders. The core has no Qt and needs neither,
-    which is why they are hooks and not imports: this module cannot import
-    ``ogr_gui`` (``AGENTS.md``, layers).
+    OGR Slip2D's interface uses the first two for ``gc_guard`` (v0.1.302:
+    cyclic garbage holding Qt objects is freed on the main thread, not by
+    whichever thread trips the collector), and the last to delete the
+    windows without a parent that the tests left alive, with Python still
+    alive (v0.1.422, D370: at the interpreter's shutdown PySide deletes
+    every wrapped object one by one, in no order a window's children can
+    rely on, and the suite segfaulted on Linux after its totals). The core
+    has no Qt and needs none of them, which is why they are hooks and not
+    imports: this module cannot import ``ogr_gui`` (``AGENTS.md``, layers).
+
+    In a run with ``--jobs`` every chunk is a process that enters through
+    the repository's own ``tests/_runner.py``, so each one gets the hooks.
     """
     before_run: Optional[Callable[[], None]] = None
     before_file: Optional[Callable[[], None]] = None
+    after_run: Optional[Callable[[], None]] = None
 
 
 # --- Which trees ------------------------------------------------------
@@ -375,7 +473,41 @@ def pinned_from_pyproject(pyproject: Path, dist: str) -> Optional[str]:
     return None
 
 
-def shared_problems(origins: dict, pinned: dict) -> list:
+def dev_base(version: Optional[str]) -> Optional[tuple]:
+    """The release a development version leads to, as a tuple of numbers:
+    ``(0, 3, 0)`` for ``"0.3.0.dev0"``; None for anything that is not a
+    ``.devN`` of a plain release number.
+
+    The only pre-release form the suite uses (PEP 440's development release).
+    Nothing else is read as one on purpose: ``0.3.0rc1`` or a local
+    ``0.3.0+patched`` would be a core somebody chose to call a release.
+    """
+    m = re.fullmatch(r"(\d+(?:\.\d+)*)\.dev\d+", version or "")
+    return tuple(int(x) for x in m.group(1).split(".")) if m else None
+
+
+def _release(version: str) -> Optional[tuple]:
+    if not re.fullmatch(r"\d+(?:\.\d+)*", version or ""):
+        return None
+    return tuple(int(x) for x in version.split("."))
+
+
+def _is_dev_of_later(have: Optional[str], want: str) -> bool:
+    """Whether ``have`` is a development version of a release after ``want``.
+
+    After, not equal: ``0.2.0.dev0`` came BEFORE the ``0.2.0`` a program
+    pins, so it is an older core, and an older core is never accepted.
+    """
+    base, pinned = dev_base(have), _release(want)
+    if base is None or pinned is None:
+        return False
+    n = max(len(base), len(pinned))
+    pad = lambda t: t + (0,) * (n - len(t))  # noqa: E731
+    return pad(base) > pad(pinned)
+
+
+def shared_problems(origins: dict, pinned: dict,
+                    dev_core: bool = False) -> list:
     """Why the shared packages cannot be measured, as sentences; empty when
     they can.
 
@@ -383,6 +515,10 @@ def shared_problems(origins: dict, pinned: dict) -> list:
     about to import it and fail one by one instead. One whose declared
     version is not the pinned one is a problem too: the program would be
     tested against a core it does not say it supports.
+
+    With ``dev_core`` (``--dev-core``), and only then, a development version
+    of a release later than the pinned one is not a problem: see
+    :func:`shared_dev`, which names the ones a run accepted that way.
     """
     problems = []
     for name, where in sorted(origins.items()):
@@ -393,11 +529,33 @@ def shared_problems(origins: dict, pinned: dict) -> list:
         if want is None:
             continue
         have = declared_version(where)
-        if have != want:
-            problems.append(
-                f"{name} {have or '(no __version__)'} resolves to {where}, "
-                f"but this repository pins {want}")
+        if have == want:
+            continue
+        later_dev = _is_dev_of_later(have, want)
+        if dev_core and later_dev:
+            continue
+        problems.append(
+            f"{name} {have or '(no __version__)'} resolves to {where}, "
+            f"but this repository pins {want}"
+            + (" (a development version of a later release: --dev-core "
+               "runs against it, and that run is not evidence for a release)"
+               if later_dev else ""))
     return problems
+
+
+def shared_dev(origins: dict, pinned: dict) -> list:
+    """``[(name, version, pinned)]`` for every shared package that is a
+    development version of a release later than its pin: what a run with
+    ``--dev-core`` is running against instead of what the repository pins."""
+    out = []
+    for name, where in sorted(origins.items()):
+        want = pinned.get(name)
+        if where is None or want is None:
+            continue
+        have = declared_version(where)
+        if have != want and _is_dev_of_later(have, want):
+            out.append((name, have, want))
+    return out
 
 
 def provenance(repo_root: Path, origins: dict) -> str:
@@ -490,6 +648,12 @@ def match_test(class_name: str, method_name: str, expr: str | None) -> bool:
     if not expr:
         return True
     return expr.lower() in f"{class_name}.{method_name}".lower()
+
+
+def node_id(path: Path, class_name: str, method_name: str) -> str:
+    """``file.py::Class::method``: how ``--list`` and the test times name a
+    test."""
+    return f"{path.name}::{class_name}::{method_name}"
 
 
 def _declared_tests(files, expr: str | None = None):
@@ -606,19 +770,763 @@ def run_test(cls, method):
         raise
 
 
+# --- What is kept on the machine (Slip2D v0.1.375–0.1.376) --------------
+@dataclass(frozen=True)
+class Records:
+    """The files a repository's runs keep in the temporary folder.
+
+    ``durations`` — the last measured seconds of each file, by name, to
+    balance the chunks of ``--jobs`` and to write the slow list. In the
+    temporary folder and not in the repository: it describes this machine,
+    not the code, and a missing or stale entry only makes the chunks less
+    even, never the run less complete. ``test_times`` — the same, test by
+    test (by :func:`node_id`): which tests make a file slow, for whoever
+    studies what the suite costs. ``serial`` — the commit of the last green
+    serial run of the whole suite on this machine (see ``serial_every``).
+    """
+    durations: Path
+    test_times: Path
+    serial: Path
+
+
+def records_for(label: str) -> Records:
+    """The machine files of the repository that calls its runs ``label``:
+    ``ogr-slip2d`` keeps ``ogr-slip2d-test-durations.json`` and its two
+    companions, the names Slip2D's own runner used, so that adopting this
+    one loses no measured time."""
+    tmp = Path(tempfile.gettempdir())
+    return Records(durations=tmp / f"{label}-test-durations.json",
+                   test_times=tmp / f"{label}-test-times.json",
+                   serial=tmp / f"{label}-serial-run.json")
+
+
+def serial_lane(path: Path) -> bool:
+    """Whether a test file asks to run alone, after the chunks: a
+    module-level ``SERIAL_LANE = True``, read from the source without
+    importing it (nothing of a file runs before its turn). For the files
+    that compare with the clock, which a process sharing the cores could
+    fail for a reason that is not a defect."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return False
+    for node in tree.body:
+        if (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "SERIAL_LANE"
+                        for t in node.targets)):
+            return (isinstance(node.value, ast.Constant)
+                    and node.value.value is True)
+    return False
+
+
+def _read_json(path: Optional[Path]):
+    if path is None:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_json(path: Path, data) -> None:
+    """Written aside and moved, so that a run reading it never sees half a
+    file; a failure to write costs what the file was for, not a run."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=0, sort_keys=True),
+                       encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        with suppress(OSError):
+            tmp.unlink()
+
+
+def load_durations(path: Optional[Path]) -> dict:
+    """``{name: seconds}`` from a durations file; empty when there is none
+    (no path, no file, or not what this module writes)."""
+    data = _read_json(path)
+    if not isinstance(data, dict):
+        return {}
+    return {k: float(v) for k, v in data.items()
+            if isinstance(v, (int, float)) and v >= 0}
+
+
+def save_durations(times: dict, path: Optional[Path]) -> None:
+    """Merge ``times`` into the file: a filtered run updates its own files
+    and keeps the rest. Nothing without a path (a run that keeps nothing)."""
+    if not times or path is None:
+        return
+    data = load_durations(path)
+    data.update({k: round(v, 3) for k, v in times.items()})
+    _write_json(path, data)
+
+
+# --- The serial run a release needs (Slip2D v0.1.376) -------------------
+def _git(repo_root: Path, *args) -> str | None:
+    """What ``git <args>`` prints in ``repo_root``, or None when git cannot
+    answer (no git, not a repository, a commit it does not know)."""
+    try:
+        out = subprocess.run(["git", *args], cwd=repo_root, timeout=60,
+                             capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() if out.returncode == 0 else None
+
+
+def record_serial_run(repo_root: Path, tests: int,
+                      path: Path) -> str | None:
+    """Remember that the whole suite passed in series at HEAD; the commit,
+    or None when there is no commit to name (and nothing is written)."""
+    sha = _git(repo_root, "rev-parse", "HEAD")
+    if not sha:
+        return None
+    _write_json(path, {"commit": sha, "date": time.strftime("%Y-%m-%d %H:%M"),
+                       "tests": tests})
+    return sha
+
+
+def serial_notice(repo_root: Path, path: Optional[Path], every: int,
+                  prog: str = "python tests/_runner.py") -> str:
+    """How long ago the last green serial run was, or ``SERIAL RUN DUE``.
+
+    Due also when it cannot be told — no record on this machine, a commit
+    this history does not have, no git: the doubt costs one serial run, the
+    other answer could skip one for good."""
+    rec = _read_json(path)
+    todo = (f"run `{prog}` with no arguments before the next "
+            f"release (AGENTS.md: every {every} commits)")
+    if not (isinstance(rec, dict) and isinstance(rec.get("commit"), str)):
+        return f"SERIAL RUN DUE — no full serial run recorded on this machine; {todo}"
+    sha, date = rec["commit"][:7], rec.get("date", "?")
+    count = _git(repo_root, "rev-list", "--count", f"{rec['commit']}..HEAD")
+    if count is None or not count.isdigit():
+        return (f"SERIAL RUN DUE — the last full serial run ({sha}, {date}) "
+                f"is not in this history; {todo}")
+    n = int(count)
+    if n >= every:
+        return (f"SERIAL RUN DUE — {n} commits since the last full serial run "
+                f"({sha}, {date}); {todo}")
+    return (f"last full serial run: {sha}, {date}, {n} commit(s) ago "
+            f"(the next is due at {every})")
+
+
+# --- The slow files (Slip2D v0.1.376) -----------------------------------
+#: The name, in a repository's ``tests/``, of the list of the files
+#: ``--fast`` leaves out. Versioned, and written on purpose by
+#: ``--write-slow-list``: a run that rewrote it would drop each new slow
+#: file from development runs without anyone deciding so.
+#:
+#: Files, not tests. Slip2D's first list named the 174 tests of 10 s or
+#: more, and ``--fast --jobs 4`` took 19.3 min where its chunks were planned
+#: at 11: a file's tests share what is expensive (a module-level search, a
+#: mesh, a solved model), the test that ran first paid for it in the whole
+#: run, and once it was left out the next one paid instead — 0.0 s to 275 s
+#: for one of them. Rewriting the list from those times would not settle it
+#: either: the next whole run gives the cost back to the first test.
+SLOW_LIST_NAME = "_slow.txt"
+#: What ``--write-slow-list`` writes by default: the files of this many
+#: seconds or more in their last whole run, which in Slip2D is a run with
+#: --jobs 4 (each test takes about twice what it takes alone). A whole run
+#: names the files of twice this that the list leaves in; twice, so that a
+#: file near the line does not come and go each run.
+SLOW_SECONDS = 45.0
+
+
+def load_slow_list(path: Path) -> frozenset:
+    """The file names in the list; ``#`` starts a comment."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return frozenset()
+    return frozenset(line.split("#", 1)[0].strip()
+                     for line in text.splitlines()
+                     if line.split("#", 1)[0].strip())
+
+
+def write_slow_list(tests_dir: Path, seconds: float,
+                    durations_path: Optional[Path], path: Path,
+                    prog: str = "python tests/_runner.py") -> int:
+    """Write the list from each file's last whole-file time on this machine:
+    the test files in the folder today that took ``seconds`` or more, in
+    their order."""
+    durations = load_durations(durations_path)
+    files = [f.name for f in sorted(tests_dir.glob("test_*.py"))]
+    timed = [f for f in files if f in durations]
+    if not timed:
+        print("No test file has a time on this machine yet: run the whole "
+              "suite first (`--jobs 4` is enough), then write the list.")
+        return 2
+    slow = [f for f in timed if durations[f] >= seconds]
+    counts: dict = {}
+    for f, _cls, _m in (_declared_tests(sorted(tests_dir.glob("test_*.py")))
+                        or ()):
+        counts[f.name] = counts.get(f.name, 0) + 1
+    # The licence lines are this file's own first two, not a copy of them in
+    # a string: the licence test reads every identifier written in the
+    # sources, quotes included.
+    licence = Path(__file__).read_text(encoding="utf-8").splitlines(True)[:2]
+    head = (
+        "".join(licence) +
+        "#\n"
+        f"# The test files `{prog} --fast` leaves out. Written by\n"
+        f"# `{prog} --write-slow-list {seconds:g}` on "
+        f"{time.strftime('%Y-%m-%d')}:\n"
+        f"# the files that took {seconds:g} s or more in their last whole run "
+        "on the\n"
+        "# development machine (seconds and tests after each). Written on "
+        "purpose, never\n"
+        "# by a run; a whole run, which a release needs, runs every one of "
+        "them.\n")
+    path.write_text(head + "".join(
+        f"{f}  # {durations[f]:.0f} s, {counts.get(f, 0)} tests\n"
+        for f in slow), encoding="utf-8", newline="\n")
+    print(f"{len(slow)} file(s) of {seconds:g} s or more written to {path}, "
+          f"with {sum(counts.get(f, 0) for f in slow)} of the "
+          f"{sum(counts.values())} tests: "
+          f"{sum(durations[f] for f in slow) / 60:.1f} of the "
+          f"{sum(durations[f] for f in timed) / 60:.1f} min timed. "
+          f"{len(files) - len(timed)} of the {len(files)} file(s) have no "
+          f"time yet, and stay in --fast.")
+    return 0
+
+
+def slow_unlisted(times: dict, listed, seconds: float) -> list:
+    """``[(name, seconds)]``, slowest first: the files of ``seconds`` or
+    more that the slow list leaves in ``--fast``."""
+    return sorted(((i, s) for i, s in times.items()
+                   if s >= seconds and i not in listed),
+                  key=lambda x: (-x[1], x[0]))
+
+
+def _print_slow_unlisted(times: dict, slow_list: Path,
+                         slow_seconds: float) -> None:
+    seconds = 2 * slow_seconds
+    found = slow_unlisted(times, load_slow_list(slow_list), seconds)
+    if not found:
+        return
+    print(f"SLOW, NOT IN tests/{slow_list.name} — {len(found)} file(s) took "
+          f"{seconds:g} s or more and --fast still runs them:")
+    for i, s in found[:10]:
+        print(f"  {i}  {s:.1f} s")
+    if len(found) > 10:
+        print(f"  … and {len(found) - 10} more")
+    print("  (make it cheaper, or write the list again with "
+          "--write-slow-list)")
+
+
+# --- Running in chunks (Slip2D v0.1.375) --------------------------------
+def file_weights(files, counts: dict, durations: dict) -> list:
+    """What each file is expected to cost: its last duration; for a file
+    never timed, its tests at the median seconds per test of the files that
+    were (one second per test when none was)."""
+    rates = sorted(durations[f.name] / counts[f.name] for f in files
+                   if f.name in durations and counts.get(f.name))
+    rate = rates[len(rates) // 2] if rates else 1.0
+    return [max(durations.get(f.name, rate * max(counts.get(f.name, 0), 1)),
+                1e-3)
+            for f in files]
+
+
+def partition(weights, n: int) -> list:
+    """``[(start, end), ...]``: at most ``n`` contiguous slices that cover
+    ``weights`` in order, with the heaviest slice as light as it can be.
+
+    Contiguous on purpose. Each chunk is a piece of the alphabetical order,
+    so a file keeps the neighbours it has in the serial run except at the
+    n - 1 borders, and a run can be repeated as it was. A queue that hands
+    out files as processes come free would end sooner, and would give files
+    different neighbours in every run: a leak a neighbour depends on would
+    show or hide by chance.
+
+    The heaviest slice is minimised exactly (the linear partition problem):
+    the smallest capacity that a greedy fill packs into ``n`` slices, found
+    by bisection, and the greedy fill at that capacity. That fill can use
+    fewer slices than ``n``; the heaviest slice of two files or more is then
+    split where its halves are most even, which never raises the heaviest,
+    until there are ``n``: whoever asks for four processes gets four.
+    """
+    weights = list(weights)
+    if not weights:
+        return []
+    n = max(1, min(n, len(weights)))
+
+    def fill(cap):
+        out, start, acc = [], 0, 0.0
+        for i, w in enumerate(weights):
+            if i > start and acc + w > cap:
+                out.append((start, i))
+                start, acc = i, 0.0
+            acc += w
+        out.append((start, len(weights)))
+        return out
+
+    lo, hi = max(weights), sum(weights)
+    for _ in range(200):
+        if hi - lo <= 1e-9 * hi:
+            break
+        mid = (lo + hi) / 2
+        if len(fill(mid)) <= n:
+            hi = mid
+        else:
+            lo = mid
+    parts = fill(hi)
+    while len(parts) < n:
+        a, b = max((p for p in parts if p[1] - p[0] > 1),
+                   key=lambda p: sum(weights[p[0]:p[1]]))
+        cut = min(range(a + 1, b), key=lambda c: max(sum(weights[a:c]),
+                                                     sum(weights[c:b])))
+        i = parts.index((a, b))
+        parts[i:i + 1] = [(a, cut), (cut, b)]
+    return parts
+
+
+class _Tally:
+    """What a run has counted, and the progress tag of its next test. A
+    chunk counts from its place in the whole run, so that its lines read
+    as the same lines of a serial run."""
+
+    def __init__(self, total: int, offset: int = 0):
+        self.passed = self.failed = self.skipped = 0
+        self.leaked = 0     # files, not tests: see _run_files
+        self.fail_details: list[tuple[str, str]] = []
+        self.total, self.offset = total, offset
+        # Fixed width, so the pass/fail marks stay in one column and the
+        # output is still readable when it scrolls.
+        self.w = len(str(total)) if total else 4
+
+    def tag(self) -> str:
+        done = self.offset + self.passed + self.failed + self.skipped
+        if not self.total:
+            return f"[{done:>{self.w}}]"
+        return (f"[{done:>{self.w}}/{self.total} "
+                f"{100.0 * done / self.total:3.0f}%]")
+
+
+def _totals_line(passed, failed, skipped, leaked, died=0) -> str:
+    # A skip is counted apart and named: it is neither a pass (it measured
+    # nothing) nor a failure (nothing was wrong). Absent when there is none,
+    # so a run without skips prints exactly what it always printed. So are
+    # the files that leaked (Slip2D v0.1.374): their tests passed, the file
+    # did not; and the chunks of --jobs that died (v0.1.375).
+    return (f"Total: {passed + failed + skipped}    Passed: {passed}    "
+            f"Failed: {failed}" + (f"    Skipped: {skipped}" if skipped else "")
+            + (f"    Leaks: {leaked}" if leaked else "")
+            + (f"    Chunks died: {died}" if died else ""))
+
+
+@dataclass(frozen=True)
+class _Around:
+    """What surrounds every file of a run: the program's hooks, the folders
+    the run gave itself (environment variable → the key their files are
+    compared under), and the whole allow-list of the leak check."""
+    hooks: Hooks
+    folders: Mapping[str, str]
+    allowed: tuple
+
+
+def _run_files(test_files, k, tally: _Tally, around: _Around, *,
+               file_offset: int = 0, n_files: int | None = None,
+               on_file=None) -> None:
+    """Run ``test_files`` in order, counting into ``tally``.
+
+    ``on_file(f, record)`` is called for every file that reached its end
+    (not for one an interrupt cut short) with what it counted, its leaks,
+    its failure details, its seconds and each test's: what a chunk reports
+    to the run that started it, and what a serial run keeps as its durations.
+    """
+    from . import leaks
+
+    n_files = n_files or len(test_files)
+    for i_file, f in enumerate(test_files, 1):
+        # Slip2D v0.1.302 (D310) — what the previous file left as cyclic
+        # garbage is freed here, on the main thread, and not later by
+        # whichever thread trips the collector (see Hooks for the program's
+        # own part of it).
+        if around.hooks.before_file is not None:
+            around.hooks.before_file()
+        gc.collect()
+        # Slip2D v0.1.373 — and what survives is frozen, so the next
+        # collections (this one, and the automatic ones on any thread) walk
+        # only what was made since. Each full collection cost ~320 ns per
+        # live object: 0.4 s per file at the start of Slip2D's suite, 3.4 s
+        # at the end, 13.6 of 87.6 minutes (its audit of v0.1.372, §3).
+        # Collected first, frozen after: the previous file's garbage is
+        # still freed.
+        gc.freeze()
+        print(f"\n=== {f.name} ===  ({file_offset + i_file}/{n_files})")
+        # Slip2D v0.1.373 — sys.path and the run's own folders are put back
+        # after each file. There 242 files inserted tests/, which is already
+        # sys.path[0], and nothing took it out: 369 entries at the end,
+        # walked with one stat each by every import of every spawn worker (a
+        # pool of 4 went from 0.5 s to 2.4-3.6 s, audit §4.3). Two runner
+        # self-tests repoint the folders through a second main() (audit D-d).
+        saved_path = list(sys.path)
+        saved_folders = {v: os.environ.get(v) for v in around.folders}
+        start = (tally.passed, tally.failed, tally.skipped,
+                 len(tally.fail_details))
+        before = leaks.snapshot(around.folders)
+        test_times: dict = {}
+        t0 = time.perf_counter()
+        finished = False
+        try:
+            try:
+                mod = _load_module(f)
+            except Exception as e:  # noqa: BLE001
+                print(f"  [LOAD ERROR] {e}")
+                tally.fail_details.append((f.name, traceback.format_exc()))
+                tally.failed += 1
+                finished = True
+                continue
+
+            for name, cls in inspect.getmembers(mod, inspect.isclass):
+                if not name.startswith("Test"):
+                    continue
+                if cls.__module__ != mod.__name__:
+                    continue
+                methods = [(m_name, m)
+                           for m_name, m in inspect.getmembers(cls, inspect.isfunction)
+                           if m_name.startswith("test_")
+                           and match_test(name, m_name, k)]
+                if not methods:
+                    continue
+                print(f"  {name}:")
+                for m_name, m in methods:
+                    t1 = time.perf_counter()
+                    outcome, why, tb = run_test(cls, m)
+                    test_times[node_id(f, name, m_name)] = round(
+                        time.perf_counter() - t1, 3)
+                    if outcome == "passed":
+                        tally.passed += 1
+                        print(f"    {tally.tag()} ✓ {m_name}")
+                    elif outcome == "skipped":
+                        tally.skipped += 1
+                        print(f"    {tally.tag()} ○ {m_name} — skipped: {why}")
+                    else:
+                        tally.failed += 1
+                        print(f"    {tally.tag()} ✗ {m_name}: {why}")
+                        tally.fail_details.append((f"{name}.{m_name}", tb))
+            finished = True
+        finally:
+            seconds = time.perf_counter() - t0
+            # In place: whoever holds the sys.path list keeps the same one.
+            sys.path[:] = saved_path
+            for var, value in saved_folders.items():
+                if value is None:
+                    os.environ.pop(var, None)
+                else:
+                    os.environ[var] = value
+            # Slip2D v0.1.374 — anything else the file left in the process
+            # is named here, at the file that left it, and fails the run
+            # (rule 5). Before, a leak showed only if a later test happened
+            # to depend on it, and only in the full run. What is looked at
+            # and what is allowed: ogr_core/testing/leaks.py.
+            found = leaks.diff(before, leaks.snapshot(around.folders),
+                               around.allowed)
+            lines = [leaks.describe(*leak) for leak in found]
+            if found:
+                tally.leaked += 1
+                for line in lines:
+                    print(f"  ✗ [LEAK] {line}")
+                tally.fail_details.append((f"{f.name} [LEAK]", "\n".join(lines)))
+            if finished and on_file is not None:
+                on_file(f, {"file": f.name,
+                            "passed": tally.passed - start[0],
+                            "failed": tally.failed - start[1],
+                            "skipped": tally.skipped - start[2],
+                            "leaks": lines,
+                            "details": tally.fail_details[start[3]:],
+                            "seconds": round(seconds, 3),
+                            "tests": test_times})
+
+
+def _run_chunk(spec_path: Path, around: _Around) -> int:
+    """One chunk of ``--jobs`` (``--child SPEC``): the files of the spec, in
+    its order, each written to the report as it ends. A chunk that dies
+    leaves behind the files it finished, so the run that started it can say
+    where it died; a chunk that ends writes ``{"end": true}`` last."""
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    tally = _Tally(spec["total"], spec["test_offset"])
+    with open(spec["report"], "a", encoding="utf-8") as report:
+        def on_file(_f, record):
+            report.write(json.dumps(record) + "\n")
+            report.flush()
+
+        _run_files([Path(p) for p in spec["files"]], spec.get("k"), tally,
+                   around, file_offset=spec["file_offset"],
+                   n_files=spec["n_files"], on_file=on_file)
+        report.write(json.dumps({"end": True}) + "\n")
+    return 0 if tally.failed == 0 and tally.leaked == 0 else 1
+
+
+def _follow(log: Path, proc) -> None:
+    """Copy a chunk's output here as it is written, until the chunk ends.
+    Bytes, decoded incrementally: a read can stop inside a character."""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    with open(log, "rb") as fh:
+        while True:
+            data = fh.read(1 << 16)
+            if data:
+                sys.stdout.write(decoder.decode(data))
+                sys.stdout.flush()
+                continue
+            if proc.poll() is not None:
+                sys.stdout.write(decoder.decode(fh.read(), final=True))
+                sys.stdout.flush()
+                return
+            time.sleep(0.2)
+
+
+def _exit_code(code) -> str:
+    # Windows gives an NTSTATUS as a large unsigned number: 3221226505 is
+    # 0xC0000409, what abort() leaves.
+    if code is None:
+        return "none"
+    if code < 0 or code > 255:
+        return f"{code} (0x{code & 0xFFFFFFFF:08X})"
+    return str(code)
+
+
+def _jobs_plan(test_files, declared, jobs: int, durations: dict):
+    """``(chunks, lane, weights, timed, counts)``: the contiguous chunks of
+    the files not in the serial lane, the lane, each file's expected seconds
+    by name, whether those come from measured durations, and each file's
+    declared tests by name."""
+    counts: dict = {}
+    for f, _cls, _m in (declared or ()):
+        counts[f.name] = counts.get(f.name, 0) + 1
+    lane = [f for f in test_files if serial_lane(f)]
+    rest = [f for f in test_files if f not in lane]
+    weights = file_weights(rest, counts, durations)
+    chunks = [rest[a:b] for a, b in partition(weights, jobs)]
+    timed = any(f.name in durations for f in rest)
+    return chunks, lane, dict(zip((f.name for f in rest), weights)), timed, counts
+
+
+def _print_plan(chunks, lane, weights, timed, counts) -> None:
+    n = len(chunks)
+    print(f"PARALLEL RUN — {n} chunk(s) at once"
+          + (f", then {len(lane)} file(s) alone (SERIAL_LANE)" if lane else ""))
+    for i, chunk in enumerate(chunks, 1):
+        tests = sum(counts.get(f.name, 0) for f in chunk)
+        # Minutes only when they were measured; balanced by test count
+        # otherwise, and a count is not a duration.
+        cost = (f", ~{sum(weights[f.name] for f in chunk) / 60:.1f} min by "
+                f"the last durations" if timed else ", balanced by test count")
+        span = (chunk[0].stem if len(chunk) == 1
+                else f"{chunk[0].stem} … {chunk[-1].stem}")
+        print(f"  chunk {i}/{n}: {span}  ({len(chunk)} file(s), "
+              f"{tests} tests{cost})")
+    if lane:
+        print("  alone:     " + ", ".join(f.stem for f in lane))
+
+
+@dataclass(frozen=True)
+class _Kept:
+    """What a run keeps and says about the machine, resolved once."""
+    records: Optional[Records]
+    slow_list: Path
+    slow_seconds: float
+    serial_every: Optional[int]
+    prog: str
+
+
+def _run_jobs(tests_dir: Path, test_files, k, jobs: int, declared,
+              banners, kept: _Kept, entry: Path, child_args: list,
+              child_config: dict) -> int:
+    """The selection in ``jobs`` processes at once, then the serial lane.
+
+    The verdict is 0 only when every test passed, no file leaked, and the
+    run is complete: every chunk wrote the end of every one of its files
+    and its own end, exited with the code its results call for, and the
+    tests run add up to the tests the source declares. A chunk that dies —
+    an ``os._exit``, an abort, a crash in Qt — is a failure named with its
+    exit code and the file it died in, never a shorter green run.
+
+    ``banners`` are the lines a run that is not evidence for a release
+    carries before and after its totals (``FILTERED RUN``, ``DEV CORE``).
+    """
+    records = kept.records
+    durations = load_durations(records.durations if records else None)
+    chunks, lane, weights, timed, counts = _jobs_plan(test_files, declared,
+                                                      jobs, durations)
+    total = len(declared) if declared is not None else 0
+    plan = [(f"{i}/{len(chunks)}", c) for i, c in enumerate(chunks, 1)]
+    if lane:
+        plan.append(("serial lane", lane))
+    for line in banners:
+        print(line)
+    _print_plan(chunks, lane, weights, timed, counts)
+
+    work = Path(tempfile.mkdtemp(prefix="ogr_test_jobs_"))
+    procs: list = []
+    test_offset = file_offset = 0
+    for i, (label, files) in enumerate(plan):
+        spec = {"files": [str(f.resolve()) for f in files], "k": k,
+                "total": total, "test_offset": test_offset,
+                "file_offset": file_offset, "n_files": len(test_files),
+                "report": str(work / f"report_{i}.jsonl"),
+                # Read only by this module run as a script (a folder with no
+                # runner of its own); a repository's runner has its own.
+                "tests_dir": str(tests_dir.resolve()),
+                "config": child_config}
+        (work / f"spec_{i}.json").write_text(json.dumps(spec), encoding="utf-8")
+        test_offset += sum(counts.get(f.name, 0) for f in files)
+        file_offset += len(files)
+
+    def start(i):
+        # The console is inherited on purpose: without one a program may
+        # send its own pools to pythonw.exe (OGR Slip2D does), and a chunk
+        # would test something the serial run does not.
+        with open(work / f"log_{i}.txt", "wb") as out:
+            return subprocess.Popen(
+                [sys.executable, "-u", str(entry), "--child",
+                 str(work / f"spec_{i}.json"), *child_args],
+                stdout=out, stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL)
+
+    n_parallel = len(chunks)
+    try:
+        procs = [start(i) for i in range(n_parallel)]
+        for i in range(len(plan)):
+            if i == n_parallel:
+                # The lane starts once every chunk has ended: following them
+                # in order, the last one followed was the last to matter.
+                procs.append(start(i))
+            _follow(work / f"log_{i}.txt", procs[i])
+    except BaseException:
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+        raise
+
+    passed = failed = skipped = leaked = 0
+    details: list = []
+    died: list = []
+    times: dict = {}
+    test_times: dict = {}
+    for i, ((label, files), proc) in enumerate(zip(plan, procs)):
+        try:
+            records_read = [json.loads(line) for line in
+                            (work / f"report_{i}.jsonl").read_text(
+                                encoding="utf-8").splitlines() if line.strip()]
+        except (OSError, ValueError):
+            records_read = []
+        done = [r for r in records_read if "file" in r]
+        for r in done:
+            passed += r["passed"]
+            failed += r["failed"]
+            skipped += r["skipped"]
+            leaked += bool(r["leaks"])
+            details += [tuple(d) for d in r["details"]]
+            times[r["file"]] = r["seconds"]
+            test_times.update(r.get("tests", {}))
+        names = [f.name for f in files]
+        names_done = [r["file"] for r in done]
+        ended = any(r.get("end") for r in records_read)
+        bad = any(r["failed"] or r["leaks"] for r in done)
+        if not ended or names_done != names:
+            where = (names[len(names_done)] if len(names_done) < len(names)
+                     else "its end")
+            after = names_done[-1] if names_done else "no file"
+            died.append(f"chunk {label} died: exit {_exit_code(proc.returncode)}"
+                        f" in {where}, after {after}; "
+                        f"{len(names) - len(names_done)} of its {len(names)}"
+                        f" file(s) did not finish (log: {work / f'log_{i}.txt'})")
+        elif proc.returncode != (1 if bad else 0):
+            died.append(f"chunk {label} ran its {len(names)} file(s) but "
+                        f"exited {_exit_code(proc.returncode)} "
+                        f"(log: {work / f'log_{i}.txt'})")
+    ran = passed + failed + skipped
+    if total and not died and ran != total:
+        died.append(f"the source declares {total} test(s) and the chunks "
+                    f"ran {ran}")
+
+    print("\n" + "=" * 60)
+    for line in died:
+        print(f"✗ [CHUNK] {line}")
+    print(_totals_line(passed, failed, skipped, leaked, len(died)))
+    print(f"PARALLEL RUN — {len(chunks)} chunk(s)"
+          + (" + serial lane" if lane else ""))
+    for line in banners:
+        print(line)
+    if not banners:
+        # Slip2D v0.1.376 — a whole run in chunks is what a release needs,
+        # and once every ``serial_every`` commits the serial run too: said
+        # with the numbers, where the release check reads them.
+        if records is not None:
+            _print_slow_unlisted(times, kept.slow_list, kept.slow_seconds)
+        if kept.serial_every:
+            print(serial_notice(tests_dir.parent,
+                                records.serial if records else None,
+                                kept.serial_every, kept.prog))
+    if details or died:
+        print("\n--- FAILURE DETAILS ---")
+        for line in died:
+            print(f"\n[CHUNK]\n{line}")
+        for name, tb in details[:10]:
+            print(f"\n[{name}]\n{tb}")
+
+    if records is not None:
+        if not k:
+            save_durations(times, records.durations)
+        save_durations(test_times, records.test_times)
+    if not died:
+        shutil.rmtree(work, ignore_errors=True)
+    return 0 if failed == 0 and leaked == 0 and not died else 1
+
+
 def main(tests_dir: Path, patterns=(), k: str | None = None,
-         list_only: bool = False, *, own: Iterable[str] = (),
-         shared: Iterable[str] = (), pinned: Optional[dict] = None,
-         hooks: Optional[Hooks] = None,
+         list_only: bool = False, *, jobs: int = 1,
+         child: str | None = None, fast: bool = False,
+         write_slow: float | None = None, dev_core: bool = False,
+         own: Iterable[str] = (), shared: Iterable[str] = (),
+         pinned: Optional[dict] = None, hooks: Optional[Hooks] = None,
+         allowed: Iterable = (),
+         run_folders: Optional[Mapping[str, str]] = None,
+         label: Optional[str] = None, records: Optional[Records] = None,
+         serial_every: Optional[int] = None,
+         slow_list: Optional[Path] = None,
+         slow_seconds: float = SLOW_SECONDS,
+         entry: Optional[Path] = None,
          prog: str = "python tests/_runner.py") -> int:
     """Run the suite in ``tests_dir``; the exit code is the result.
 
-    ``own`` are the packages this repository contains: each must resolve
-    inside ``tests_dir.parent``. ``shared`` are the packages it takes from
-    another tree (the core, for a program), and ``pinned`` maps each to the
-    version the repository pins (:func:`pinned_from_pyproject`). Exit 2
-    means nothing was run: a wrong tree, a wrong shared version, or a
-    selection that matches nothing.
+    The selection: ``patterns``, ``k``, ``list_only``, ``fast``, and
+    ``jobs`` processes at once. ``write_slow`` rewrites the slow list and
+    runs nothing. ``child`` is how a run with ``jobs`` starts each chunk.
+
+    What the repository says of itself, in its ``tests/_runner.py``:
+
+    ``own`` are the packages it contains: each must resolve inside
+    ``tests_dir.parent``. ``shared`` are the packages it takes from another
+    tree (the core, for a program), and ``pinned`` maps each to the version
+    it pins (:func:`pinned_from_pyproject`); ``dev_core`` accepts a
+    development version of a later release instead (``--dev-core``).
+
+    ``hooks`` — see :class:`Hooks`. ``allowed`` — the program's own entries
+    of the leak check's allow-list, added to the suite's
+    (:data:`ogr_core.testing.leaks.ALLOWED`). ``run_folders`` — the folders
+    every run gives itself, as ``{environment variable: key}``: each is a
+    fresh temporary folder, put back after every file, whose files are part
+    of the leak check under that key. OGR Slip2D gives its runs a settings
+    folder and a bridge folder this way, so that no test reads the user's
+    preferences or finds the user's open window.
+
+    ``label`` — the name the run's machine files are kept under
+    (:func:`records_for`), or ``records`` to say the files themselves; with
+    neither, nothing is kept. ``serial_every`` — the number of commits
+    after which a whole run in chunks says ``SERIAL RUN DUE``; None for a
+    repository with no such rule. ``slow_list`` — the list ``--fast`` reads,
+    ``tests/_slow.txt`` by default, and ``slow_seconds`` its threshold.
+
+    ``entry`` — the script each chunk of ``jobs`` is started with:
+    ``tests_dir/_runner.py`` by default, so that every chunk gets the
+    repository's own configuration, hooks included; this module itself for
+    a folder that has no runner of its own.
+
+    Exit 2 means nothing was run: a wrong tree, a wrong shared version, an
+    option with nothing to do, or a selection that matches nothing.
     """
     # The ✓/✗ marks below are not printable in the console codepage Windows
     # picks when stdout is redirected (cp1252), and the UnicodeEncodeError
@@ -630,7 +1538,24 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
     except (AttributeError, ValueError):  # non-reconfigurable stream
         pass
     install_pytest_shim()
+    # The temporary folder is settled here, before the first file, in the
+    # run and in every chunk: ``tempfile`` works it out on its first use and
+    # keeps the answer, and the leak check would name that at whichever file
+    # happened to be first to make a temporary file (it did, in the chunks of
+    # this repository's own suite). Slip2D's runner settled it without
+    # meaning to, by naming its machine files at import. Settled first, a
+    # file that MOVES it is still named.
+    tempfile.gettempdir()
     hooks = hooks or Hooks()
+    folders = dict(run_folders or {})
+    pinned = dict(pinned or {})
+
+    # Slip2D v0.1.207 and v0.1.289 (D290) — the folders a program's code
+    # would otherwise find in the user's home (the discovery folder of an
+    # open window, the saved language and theme) are, for the whole run and
+    # its children, empty folders of its own.
+    for var, key in folders.items():
+        os.environ[var] = tempfile.mkdtemp(prefix=f"ogr_test_{key}_")
 
     # Before anything else: which trees is this about to measure? See
     # foreign_packages() for why a run that answers this wrongly is worse
@@ -651,7 +1576,7 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
               "then run again.")
         return 2
     shared_origins = package_origins(shared)
-    problems = shared_problems(shared_origins, pinned or {})
+    problems = shared_problems(shared_origins, pinned, dev_core)
     if problems:
         print("WRONG SHARED TREE — this suite would not test against the "
               "version it pins.")
@@ -661,16 +1586,70 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
         print("Install the pinned version, or check out its tag in the "
               "editable tree, then run again.")
         return 2
-    print(provenance(repo_root, origins))
-    for line in shared_provenance(shared_origins):
-        print(line)
+    dev = shared_dev(shared_origins, pinned) if dev_core else []
+    if dev_core and not dev:
+        # Rule 7: an option that did nothing would read as a check passed.
+        print("--dev-core has nothing to accept: no shared package is at a "
+              "development version of a release later than its pin.")
+        return 2
+    dev_banner = [
+        f"DEV CORE — {name} {have} runs in place of the pinned {want} — "
+        f"NOT evidence for a release" for name, have, want in dev]
+    if child is None:
+        # A chunk of --jobs says nothing of its own: the run that started it
+        # printed these lines, and prints the totals.
+        print(provenance(repo_root, origins))
+        for line in shared_provenance(shared_origins):
+            print(line)
     if hooks.before_run is not None:
         hooks.before_run()
+
+    from . import leaks
+    around = _Around(hooks=hooks, folders=folders,
+                     allowed=tuple(leaks.ALLOWED) + tuple(allowed))
+    if child is not None:
+        return _run_chunk(Path(child), around)
+
+    if records is None and label:
+        records = records_for(label)
+    slow_list = slow_list or (tests_dir / SLOW_LIST_NAME)
+    kept = _Kept(records=records, slow_list=slow_list,
+                 slow_seconds=slow_seconds, serial_every=serial_every,
+                 prog=prog)
+    if jobs < 1:
+        print(f"--jobs takes a number of processes, 1 or more; got {jobs}.")
+        return 2
+    if write_slow is not None:
+        if patterns or k or fast:
+            print("--write-slow-list writes the list of the whole folder; "
+                  "it takes no patterns, -k or --fast.")
+            return 2
+        return write_slow_list(tests_dir, write_slow,
+                               records.durations if records else None,
+                               slow_list, prog)
+    slow = frozenset()
+    if fast:
+        slow = load_slow_list(slow_list)
+        if not slow:
+            # Rule 7: a --fast that left nothing out would be a whole run
+            # under a FILTERED banner, and a list that went missing would
+            # never be noticed.
+            print(f"--fast has nothing to leave out: tests/{slow_list.name} "
+                  "is missing or empty. Write it with --write-slow-list "
+                  "after a whole run.")
+            return 2
 
     patterns = list(patterns)
     every = sorted(tests_dir.glob("test_*.py"))
     test_files = select_files(tests_dir, patterns)
-    filtered = bool(patterns) or bool(k)
+    filtered = bool(patterns) or bool(k) or fast
+    left_out = [f for f in test_files if f.name in slow]
+    if fast:
+        if test_files and len(left_out) == len(test_files):
+            print(f"Every selected file is in tests/{slow_list.name}: "
+                  "--fast leaves nothing to run.")
+            return 2
+        test_files = [f for f in test_files if f.name not in slow]
 
     def _banner() -> str:
         bits = []
@@ -678,6 +1657,9 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
             bits.append(f"patterns: {patterns}")
         if k:
             bits.append(f"-k {k!r}")
+        if fast:
+            bits.append(f"--fast: {len(left_out)} slow file(s) left out "
+                        f"(tests/{slow_list.name})")
         return (f"FILTERED RUN — {len(test_files)} of {len(every)} files"
                 f", {', '.join(bits)} — NOT the full suite")
 
@@ -710,86 +1692,73 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
             print(f"{f.name}::{cls}::{m_name}")
         print(f"\n{len(declared)} test(s) in {len(test_files)} file(s)"
               f" of {len(every)}. Nothing was run.")
+        if jobs > 1:
+            print()
+            _print_plan(*_jobs_plan(
+                test_files, declared, jobs,
+                load_durations(records.durations if records else None)))
         return 0
 
-    passed = 0
-    failed = 0
-    skipped = 0
-    fail_details: list[tuple[str, str]] = []
+    # The lines a run that is not evidence for a release carries before and
+    # after its totals. Repeated after them on purpose: a green partial run
+    # pasted into a changelog or a release check is indistinguishable from a
+    # green full suite unless the line travels with the numbers.
+    banners = ([_banner()] if filtered else []) + dev_banner
 
-    total_tests = len(declared) if declared is not None else 0
-    n_files = len(test_files)
-    # Fixed width, so the pass/fail marks stay in one column and the
-    # output is still readable when it scrolls.
-    w = len(str(total_tests)) if total_tests else 4
+    if jobs > 1:
+        if entry is None:
+            own_runner = tests_dir / "_runner.py"
+            entry = own_runner if own_runner.is_file() else Path(__file__)
+        return _run_jobs(
+            tests_dir, test_files, k, jobs, declared, banners, kept,
+            Path(entry).resolve(), ["--dev-core"] if dev_core else [],
+            {"own": list(own), "shared": list(shared), "pinned": pinned,
+             "run_folders": folders})
 
-    def _tag() -> str:
-        done = passed + failed + skipped
-        if not total_tests:
-            return f"[{done:>{w}}]"
-        return f"[{done:>{w}}/{total_tests} {100.0 * done / total_tests:3.0f}%]"
+    tally = _Tally(len(declared) if declared is not None else 0)
+    for line in banners:
+        print(line)
+    times: dict = {}
+    test_times: dict = {}
 
-    if filtered:
-        print(_banner())
+    def on_file(f, record):
+        times[f.name] = record["seconds"]
+        test_times.update(record["tests"])
 
-    for i_file, f in enumerate(test_files, 1):
-        # What the previous file left as cyclic garbage is freed here, on
-        # the main thread (see Hooks for the program's own part of it).
-        if hooks.before_file is not None:
-            hooks.before_file()
-        gc.collect()
-        print(f"\n=== {f.name} ===  ({i_file}/{n_files})")
-        try:
-            mod = _load_module(f)
-        except Exception as e:  # noqa: BLE001
-            print(f"  [LOAD ERROR] {e}")
-            fail_details.append((f.name, traceback.format_exc()))
-            failed += 1
-            continue
-
-        for name, cls in inspect.getmembers(mod, inspect.isclass):
-            if not name.startswith("Test"):
-                continue
-            if cls.__module__ != mod.__name__:
-                continue
-            methods = [(m_name, m)
-                       for m_name, m in inspect.getmembers(cls, inspect.isfunction)
-                       if m_name.startswith("test_")
-                       and match_test(name, m_name, k)]
-            if not methods:
-                continue
-            print(f"  {name}:")
-            for m_name, m in methods:
-                outcome, why, tb = run_test(cls, m)
-                if outcome == "passed":
-                    passed += 1
-                    print(f"    {_tag()} ✓ {m_name}")
-                elif outcome == "skipped":
-                    skipped += 1
-                    print(f"    {_tag()} ○ {m_name} — skipped: {why}")
-                else:
-                    failed += 1
-                    print(f"    {_tag()} ✗ {m_name}: {why}")
-                    fail_details.append((f"{name}.{m_name}", tb))
+    _run_files(test_files, k, tally, around, on_file=on_file)
 
     print("\n" + "=" * 60)
-    # A skip is counted apart and named: it is neither a pass (it measured
-    # nothing) nor a failure (nothing was wrong). Absent when there is none,
-    # so a run without skips prints exactly what it always printed.
-    print(f"Total: {passed + failed + skipped}    Passed: {passed}    "
-          f"Failed: {failed}" + (f"    Skipped: {skipped}" if skipped else ""))
-    # Repeated after the totals on purpose: a green partial run pasted
-    # into a changelog or a release check is indistinguishable from a
-    # green full suite unless the line travels with the numbers.
-    if filtered:
-        print(_banner())
+    print(_totals_line(tally.passed, tally.failed, tally.skipped,
+                       tally.leaked))
+    for line in banners:
+        print(line)
+    code = 0 if tally.failed == 0 and tally.leaked == 0 else 1
+    if records is not None and not banners:
+        _print_slow_unlisted(times, slow_list, slow_seconds)
+        # Slip2D v0.1.376 — the serial run a release needs every
+        # ``serial_every`` commits is remembered only when it is the whole
+        # suite, against the pinned core, and green.
+        sha = (record_serial_run(repo_root, tally.passed + tally.skipped,
+                                 records.serial)
+               if code == 0 and serial_every else None)
+        if sha:
+            print(f"full serial run recorded: {sha[:7]}; the next is due in "
+                  f"{serial_every} commits")
 
-    if fail_details:
+    if tally.fail_details:
         print("\n--- FAILURE DETAILS ---")
-        for name, tb in fail_details[:10]:
+        for name, tb in tally.fail_details[:10]:
             print(f"\n[{name}]\n{tb}")
 
-    return 0 if failed == 0 else 1
+    # Slip2D v0.1.375 — what each file took, for the chunks of a later
+    # --jobs; not under -k (part of a file), nor for a run that keeps
+    # nothing (the self-tests' throwaway files). Each test's own seconds are
+    # right under any filter (v0.1.376).
+    if records is not None:
+        if not k:
+            save_durations(times, records.durations)
+        save_durations(test_times, records.test_times)
+    return code
 
 
 def _parse_args(argv, prog: str = "python tests/_runner.py"):
@@ -809,17 +1778,85 @@ def _parse_args(argv, prog: str = "python tests/_runner.py"):
              "(case-insensitive substring; no and/or/not grammar).")
     p.add_argument(
         "--list", dest="list_only", action="store_true",
-        help="print the selected tests and exit without running them.")
+        help="print the selected tests and exit without running them "
+             "(with --jobs, also the chunks it would run).")
+    p.add_argument(
+        "--jobs", "-j", type=int, default=1, metavar="N",
+        help="run in N processes at once: contiguous chunks of the "
+             "alphabetical order, balanced by the last durations, then the "
+             "files marked SERIAL_LANE alone. A chunk that dies fails the "
+             "run. Without it the run is serial, as in CI.")
+    p.add_argument(
+        "--fast", action="store_true",
+        help=f"leave out the files listed in tests/{SLOW_LIST_NAME}; a "
+             "filtered run, not evidence for a release.")
+    p.add_argument(
+        "--write-slow-list", dest="write_slow", type=float, nargs="?",
+        const=SLOW_SECONDS, default=None, metavar="SECONDS",
+        help=f"rewrite tests/{SLOW_LIST_NAME} with the test files that took "
+             f"SECONDS or more (default {SLOW_SECONDS:g}) in their last "
+             "whole run on this machine, and run nothing.")
+    p.add_argument(
+        "--dev-core", dest="dev_core", action="store_true",
+        help="run against a shared package that is a development version "
+             "(X.Y.Z.devN) of a release later than the pinned one; not "
+             "evidence for a release, and the run says so.")
+    # How a run with --jobs starts each chunk; not for typing.
+    p.add_argument("--child", metavar="SPEC", default=None,
+                   help=argparse.SUPPRESS)
     return p.parse_args(argv)
 
 
 def cli(tests_dir: Path, argv=None, **config) -> int:
     """The command line of a repository's ``tests/_runner.py``.
 
-    ``config`` is passed to :func:`main` as is (``own``, ``shared``,
-    ``pinned``, ``hooks``, ``prog``).
+    ``config`` is passed to :func:`main` as is: what the repository says of
+    itself (``own``, ``shared``, ``pinned``, ``hooks``, ``allowed``,
+    ``run_folders``, ``label``, ``serial_every``, ``prog``). The caller ends
+    the process with what this returns: ``sys.exit(runner.cli(...))``.
     """
     ns = _parse_args(sys.argv[1:] if argv is None else argv,
                      config.get("prog", "python tests/_runner.py"))
-    return main(tests_dir, patterns=ns.patterns, k=ns.k,
-                list_only=ns.list_only, **config)
+    code = main(tests_dir, patterns=ns.patterns, k=ns.k,
+                list_only=ns.list_only, jobs=ns.jobs, child=ns.child,
+                fast=ns.fast, write_slow=ns.write_slow,
+                dev_core=ns.dev_core, **config)
+    # Slip2D v0.1.377 — everything a run leaves (totals, durations, the
+    # serial record, a chunk's report) is written inside main(); only the
+    # streams remain, and they are emptied here so that no ending can lose
+    # them.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    # Slip2D v0.1.422 (D370) — what the program must undo with Python still
+    # alive goes first (see Hooks), and the process then ends through the
+    # interpreter's own shutdown on every platform, so a crash in it shows.
+    # From v0.1.377 to v0.1.421 the runner hid that crash off Windows with
+    # os._exit; its owner's decision of 2026-11-04 took that out, once the
+    # cause was gone. This runner never ends the process itself.
+    after = getattr(config.get("hooks"), "after_run", None)
+    if after is not None:
+        after()
+    return code
+
+
+def _child_of_a_bare_folder(argv) -> int:
+    """A chunk of ``--jobs`` for a folder with no runner of its own: the
+    spec names the folder and the plain part of its configuration."""
+    ns = _parse_args(argv)
+    if ns.child is None:
+        print("This module is the suite's test runner, and is run through "
+              "a repository's own script: `python tests/_runner.py`.")
+        return 2
+    spec = json.loads(Path(ns.child).read_text(encoding="utf-8"))
+    return cli(Path(spec["tests_dir"]), argv, **spec.get("config", {}))
+
+
+if __name__ == "__main__":
+    # Started by path by _run_jobs: sys.path[0] is this folder, whose
+    # modules would then answer to ``runner`` and ``leaks`` for any test
+    # that imports those names. The tree this file belongs to goes there
+    # instead, and the chunk runs in the module imported by its real name —
+    # the same one the run that started it uses.
+    sys.path[0] = str(Path(__file__).resolve().parents[2])
+    from ogr_core.testing import runner as _runner
+    sys.exit(_runner._child_of_a_bare_folder(sys.argv[1:]))

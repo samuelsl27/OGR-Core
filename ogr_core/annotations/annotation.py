@@ -58,11 +58,17 @@ CONVERTIBLE_KINDS = {AnnotationKind.LINE, AnnotationKind.POLYLINE,
                      AnnotationKind.CIRCLE}
 
 
+#: The colour of an annotation nobody coloured. It is the light theme's ink,
+#: and what the DXF, the PNG and a printed figure use; the dark canvas draws it
+#: with its own ink (v0.1.413, D350), and a colour chosen by hand as chosen.
+DEFAULT_COLOUR = "#202020"
+
+
 @dataclass
 class AnnotationStyle:
     """Appearance of an annotation."""
 
-    colour: str = "#202020"
+    colour: str = DEFAULT_COLOUR
     line_width: float = 1.0
     line_style: str = "solid"      # solid | dash | dot | dashdot
     fill: Optional[str] = None     # None = no fill
@@ -78,7 +84,7 @@ class AnnotationStyle:
 
     @classmethod
     def from_dict(cls, d: dict) -> "AnnotationStyle":
-        return cls(colour=str(d.get("colour", "#202020")),
+        return cls(colour=str(d.get("colour", DEFAULT_COLOUR)),
                    line_width=float(d.get("line_width", 1.0)),
                    line_style=str(d.get("line_style", "solid")),
                    fill=d.get("fill"),
@@ -193,8 +199,11 @@ class Annotation:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Annotation":
+        # v0.1.437 (D414) -- a value this build does not know is said by
+        # its code (``ogr_core.file_messages``)
+        from ..file_messages import read_enum
         return cls(
-            kind=AnnotationKind(d.get("kind", "line")),
+            kind=read_enum(AnnotationKind, d.get("kind", "line")),
             points=[tuple(p) for p in d.get("points", [])],
             text=str(d.get("text", "")),
             style=AnnotationStyle.from_dict(d.get("style", {})),

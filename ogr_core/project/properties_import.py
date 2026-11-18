@@ -29,21 +29,31 @@ so an agent imports exactly what the interface imports, and fixed on the way
 Support TYPES are imported, not placed supports; each gets a fresh id
 (v0.1.149).
 
+v0.1.439 (D421) -- and a name the model already has, numbered: a support
+type as a material always was («Type 1 (2)»), by one rule
+(``ogr_core.naming.numbered_name``, the comparison ``find_type`` finds a set
+by). Until this version a set kept the name it brought, while the status
+bar said duplicated names were numbered, and the agent could no longer find
+either of two sets of one name.
+
 Author: Samuel Sáez López (UPCT)
 """
 from __future__ import annotations
+
+# v0.1.437 (D414) -- the notes with their codes: the window says them
+from .messages import (IMPORT_ANISOTROPIC_DROPPED, IMPORT_LINK_DROPPED,
+                       IMPORT_LINK_RENAMED, IMPORT_MAX_MATERIALS,
+                       IMPORT_WATER_DROPPED, import_child, import_note)
+from ..naming import name_key, numbered_name
 
 import copy
 from uuid import uuid4
 
 
-def _unique(name: str, taken: set) -> str:
-    candidate, i = name, 2
-    while candidate.strip().lower() in taken:
-        candidate = f"{name} ({i})"
-        i += 1
-    taken.add(candidate.strip().lower())
-    return candidate
+def set_label(st) -> str:
+    """The name a support set is known by: the one it was given, else its
+    class's (the label ``find_type`` compares)."""
+    return getattr(st, "_display_name", None) or st.DISPLAY_NAME
 
 
 def _relink_generalized(project, source, imported: dict, notes: list):
@@ -66,8 +76,8 @@ def _relink_generalized(project, source, imported: dict, notes: list):
         # joints.
         new_children = {}
         for key, rule in clone.strength.children_items():
-            who = ("range %d" % (key[1] + 1) if key[0] == "rules"
-                   else clone.strength.child_label(key))
+            # v0.1.437 (D414) -- with its code: «range 2», «the base»
+            who = import_child(key)
             link = rule.get("material_id") if isinstance(rule, dict) else None
             if not link:
                 continue
@@ -81,59 +91,63 @@ def _relink_generalized(project, source, imported: dict, notes: list):
             if here is None or here is clone or isinstance(
                     here.strength, GeneralizedAnisotropic):
                 rule.pop("material_id", None)
-                notes.append(
-                    f"{clone.name!r}: {who} linked a material this model "
-                    f"cannot link; it keeps the strength it had, unlinked.")
+                notes.append(import_note(IMPORT_LINK_DROPPED,
+                                         name=clone.name, who=who))
                 continue
             rule["material_id"] = here.id
             if by_name_here:
-                notes.append(
-                    f"{clone.name!r}: {who} now takes the strength of "
-                    f"{here.name!r}, the material of that name in this "
-                    f"model.")
+                notes.append(import_note(IMPORT_LINK_RENAMED,
+                                         name=clone.name, who=who,
+                                         here=here.name))
         clone.strength = clone.strength.with_children(new_children)
     resolve_generalized_links(project.materials)
 
 
 def import_properties(project, source, *, materials: bool = True,
-                      support_types: bool = True, names=None) -> dict:
+                      support_types: bool = True, names=None,
+                      renamed: list = None) -> dict:
     """Copy materials and/or support types from ``source`` into ``project``.
 
     ``names`` restricts the copy to those names (case-insensitive). Returns
     ``{"materials": [...], "support_types": [...], "skipped": [...],
-    "notes": [...]}`` with the names as they were stored here.
+    "notes": [...]}`` with the names as they were stored here. A name the
+    model already has is numbered, for a material and for a support type
+    alike (:func:`ogr_core.naming.numbered_name`); ``renamed``, when given,
+    receives a ``(name brought, name stored)`` pair for each one numbered
+    (the window counts them; the agent reads the names).
     """
     from ..materials import Material, PorePressureType
 
-    wanted = ({str(n).strip().lower() for n in names}
-              if names is not None else None)
+    wanted = ({name_key(n) for n in names} if names is not None else None)
     out = {"materials": [], "support_types": [], "skipped": [], "notes": []}
+    numbered = renamed if renamed is not None else []
 
     imported = {}
     if materials:
-        taken = {m.name.strip().lower() for m in project.materials}
+        taken = [m.name for m in project.materials]
         for m in source.materials:
-            if wanted is not None and m.name.strip().lower() not in wanted:
+            if wanted is not None and name_key(m.name) not in wanted:
                 continue
             if len(project.materials) >= project.settings.max_materials:
                 out["skipped"].append(m.name)
                 continue
             clone = Material.from_dict(m.to_dict())
             clone.id = str(uuid4())
-            clone.name = _unique(clone.name, taken)
+            clone.name = numbered_name(clone.name, taken)
+            taken.append(clone.name)
+            if clone.name != m.name:
+                numbered.append((m.name, clone.name))
             if clone.water_surface_id:
                 clone.water_surface_id = None
                 if clone.pore_pressure in (PorePressureType.WATER_TABLE,
                                            PorePressureType.PIEZO_LINE):
                     clone.pore_pressure = PorePressureType.NONE
-                out["notes"].append(
-                    f"{clone.name!r} used a water surface of the other "
-                    f"project; assign one of this model to it.")
+                out["notes"].append(import_note(IMPORT_WATER_DROPPED,
+                                                name=clone.name))
             if clone.anisotropic_surface_id:
                 clone.anisotropic_surface_id = None
-                out["notes"].append(
-                    f"{clone.name!r} lost its anisotropic surface, which "
-                    f"belonged to the other project.")
+                out["notes"].append(import_note(IMPORT_ANISOTROPIC_DROPPED,
+                                                name=clone.name))
             project.materials.append(clone)
             out["materials"].append(clone.name)
             imported[m.id] = clone
@@ -143,22 +157,30 @@ def import_properties(project, source, *, materials: bool = True,
         # the strength it had and loses the link, and a note says so.
         _relink_generalized(project, source, imported, out["notes"])
         if out["skipped"]:
-            out["notes"].append(
-                f"{len(out['skipped'])} material(s) not imported: the model "
-                f"already has the maximum of "
-                f"{project.settings.max_materials}.")
+            out["notes"].append(import_note(
+                IMPORT_MAX_MATERIALS, n=len(out["skipped"]),
+                limit=project.settings.max_materials))
         if out["materials"]:
             project._notify("material_added")
 
     if support_types:
+        taken = [set_label(x) for x in project.support_types]
         for st in getattr(source, "support_types", []) or []:
-            label = getattr(st, "_display_name", None) or st.DISPLAY_NAME
-            if wanted is not None and label.strip().lower() not in wanted:
+            label = set_label(st)
+            if wanted is not None and name_key(label) not in wanted:
                 continue
             clone = copy.deepcopy(st)
             clone.id = str(uuid4())
+            # v0.1.439 (D421) -- numbered as a material is; a set with no
+            # clash keeps what it had, its class's name included, so a model
+            # saved without one reads as it did
+            stored = numbered_name(label, taken)
+            if stored != label:
+                clone._display_name = stored
+                numbered.append((label, stored))
+            taken.append(stored)
             project.support_types.append(clone)
-            out["support_types"].append(label)
+            out["support_types"].append(stored)
         if out["support_types"]:
             project._notify("support_types_changed")
     project.is_dirty = True

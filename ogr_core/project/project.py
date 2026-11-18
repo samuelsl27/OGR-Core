@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 from uuid import uuid4
@@ -34,10 +34,16 @@ from .settings import ProjectSettings
 FILE_FORMAT_VERSION = "0.1"
 
 
+#: The name a new project is born with. Data the ``.ogr`` keeps, in English;
+#: the interface shows it translated (``ogr_gui.labels.project_label``,
+#: v0.1.433, D411).
+DEFAULT_PROJECT_NAME = "Untitled"
+
+
 class Project:
     """Container for all geotechnical data belonging to a single analysis."""
 
-    def __init__(self, name: str = "Untitled") -> None:
+    def __init__(self, name: str = DEFAULT_PROJECT_NAME) -> None:
         self.id: str = str(uuid4())
         self.name: str = name
         self.file_path: Optional[Path] = None
@@ -45,7 +51,10 @@ class Project:
 
         self.settings: ProjectSettings = ProjectSettings()
         self.settings.summary.title = name
-        self.settings.summary.date_created = datetime.utcnow().isoformat()
+        # In UTC and without the zone, as every file has it: ``utcnow`` is
+        # deprecated since Python 3.12, and this writes the same text
+        self.settings.summary.date_created = datetime.now(
+            timezone.utc).replace(tzinfo=None).isoformat()
 
         # Model content
         self.boundaries: list[Boundary] = []
@@ -110,6 +119,13 @@ class Project:
         # not survive a save — while ``is_dirty`` still asked the user to
         # save for it.
         self.user_surfaces = []
+        # v0.1.427 (D357) — and the NON-circular ones, ``UserPolylineSurface``
+        # (``ogr_core.geometry.user_polyline``). A list of their own rather
+        # than a second kind inside ``user_surfaces``: the loader of every
+        # earlier version builds each entry there as a circle and would stop
+        # opening the file at the first polyline, while an unknown top-level
+        # key is simply not read.
+        self.user_polylines = []
 
         # v0.1.236 (D93) — True only on the copy ``apply_design_factors``
         # returns, never on a model the user edits. Not saved (``to_dict``
@@ -173,6 +189,16 @@ class Project:
     # ------------------------------------------------------------------
     def add_listener(self, cb: Callable[[str], None]) -> None:
         self._listeners.append(cb)
+
+    def remove_listener(self, cb: Callable[[str], None]) -> None:
+        """Stop notifying ``cb`` (v0.1.404, D389); nothing if it is not a
+        listener. A view that outlives its interest in the project — a
+        closed Interpret window — has to say so: the project held every
+        canvas that ever listened to it, and what each one drew."""
+        try:
+            self._listeners.remove(cb)
+        except ValueError:
+            pass
 
     def _notify(self, event: str) -> None:
         # v0.1.203 — not for "saved": ``save`` clears the flag and then
@@ -543,6 +569,12 @@ class Project:
         where a stronger guarantee already holds: an analysis must not
         modify the user's project (design coefficients are applied to a
         *copy*, which is a different Project with its own caches).
+        v0.1.385 (D380) -- what a copy keeps of the freeze: a detached copy
+        (``copies.detached_copy``, every sample and every job) starts
+        unfrozen; the shallow copies an evaluation makes INSIDE the block
+        (the Ky trial, the drawdown levels) share it and the region and box
+        caches on purpose, and a level copy drops the bond profiles, which
+        read the water it changes.
 
         Entering populates both caches once, so a frozen block never serves
         a cache that was empty when it started. Reentrant, and released in
@@ -749,6 +781,10 @@ class Project:
         if self.transient_initial_result is not None:
             out["transient_initial_result"] = (
                 self.transient_initial_result.to_dict())
+        # v0.1.427 (D357) — likewise only when there is one, for the same
+        # reason: a model without hand-drawn polylines keeps its fingerprint.
+        if self.user_polylines:
+            out["user_polylines"] = [s.to_dict() for s in self.user_polylines]
         return out
 
     def save(self, path: Optional[Path] = None) -> Path:
@@ -768,12 +804,21 @@ class Project:
     @classmethod
     def load(cls, path: Path | str) -> "Project":
         path = Path(path)
-        data = json.loads(path.read_text(encoding="utf-8"))
+        # v0.1.438 (D422) -- a BOM is accepted: the file is valid UTF-8 JSON
+        # with one, as an editor on Windows writes it, and a file without
+        # one reads the same (none of the bank's has one)
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         return cls.from_dict(data, path)
 
     @classmethod
     def from_dict(cls, data: dict, path: Optional[Path] = None) -> "Project":
-        proj = cls(name=data.get("name", "Untitled"))
+        # v0.1.438 (D422) -- the shape to_dict writes, checked before it is
+        # taken for granted: a root or a section of another JSON type is
+        # refused by a code, not left to an AttributeError or to a file
+        # that opens empty
+        from .file_shape import check_shape
+        check_shape(data)
+        proj = cls(name=data.get("name", DEFAULT_PROJECT_NAME))
         proj.id = data.get("id", proj.id)
         proj.settings = ProjectSettings.from_dict(data.get("settings", {}))
         proj.boundaries = [Boundary.from_dict(b) for b in data.get("boundaries", [])]
@@ -924,6 +969,12 @@ class Project:
         if uss:
             from ..geometry.slip_circle import SlipCircle as _SC
             proj.user_surfaces = [_SC.from_dict(d) for d in uss]
+        # v0.1.427 (D357) — absent from every earlier file, which opens with
+        # the empty list the constructor made.
+        ups = data.get("user_polylines")
+        if ups:
+            from ..geometry.user_polyline import UserPolylineSurface as _UP
+            proj.user_polylines = [_UP.from_dict(d) for d in ups]
 
         ann = data.get("annotations")
         if ann:

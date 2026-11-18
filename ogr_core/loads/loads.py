@@ -11,6 +11,8 @@ Implements three load classes:
 Author: Samuel Sáez López (UPCT)
 """
 from __future__ import annotations
+# v0.1.437 (D414) -- a value this build does not know is said by its code
+from ..file_messages import read_enum
 
 import math
 from dataclasses import dataclass, field
@@ -139,16 +141,17 @@ class DistributedLoad:
             end=Vertex(*data["end"]),
             magnitude_1=data["magnitude_1"],
             magnitude_2=data.get("magnitude_2"),
-            orientation=LoadOrientation(data["orientation"]),
+            orientation=read_enum(LoadOrientation, data["orientation"]),
             angle_deg=data.get("angle_deg", 0.0),
-            distribution=LoadDistribution(data.get("distribution", "constant")),
+            distribution=read_enum(LoadDistribution,
+                                   data.get("distribution", "constant")),
             id=data.get("id", str(uuid4())),
             name=data.get("name", ""),
             creates_excess_pore_pressure=bool(
                 data.get("creates_excess_pore_pressure", False)),
             # A file from before v0.1.243 has no action: every load was
             # factored as a variable one, and still is.
-            action=LoadAction(data.get("action", "variable")),
+            action=read_enum(LoadAction, data.get("action", "variable")),
         )
 
     def tooltip_html(self) -> str:
@@ -212,6 +215,14 @@ class LineLoad:
                     tx * math.sin(a) + ty * math.cos(a))
         return (0.0, -1.0)
 
+    def _named(self):
+        """This load as a refusal names it: its name, or its id when it has
+        none (the English the refusals always wrote), kept with its id, so
+        the window names a load the program named by its kind and its
+        magnitude (v0.1.436, D415)."""
+        from ..messages import joined_name
+        return joined_name(self.name or self.id, self.id)
+
     def ground_frame(self, ground):
         """(tx, ty, nx, ny) of the ground surface under the load point.
 
@@ -227,14 +238,14 @@ class LineLoad:
                                         refusal_message)
         if ground is None or len(ground.vertices) < 2:
             raise ValueError(refusal_message(
-                LINE_LOAD_NEEDS_GROUND, name=self.name or self.id))
+                LINE_LOAD_NEEDS_GROUND, name=self._named()))
         xs = [v.x for v in ground.vertices]
         ys = [v.y for v in ground.vertices]
         tol = 1e-3 * math.hypot(max(xs) - min(xs), max(ys) - min(ys))
         frame = ground_frame(ground, self.point.x, self.point.y, tol)
         if frame is None:
             raise ValueError(refusal_message(
-                LINE_LOAD_OFF_GROUND, name=self.name or self.id,
+                LINE_LOAD_OFF_GROUND, name=self._named(),
                 x=self.point.x, y=self.point.y))
         return frame
 
@@ -257,13 +268,13 @@ class LineLoad:
         return cls(
             point=Vertex(*data["point"]),
             magnitude=data["magnitude"],
-            orientation=LoadOrientation(data["orientation"]),
+            orientation=read_enum(LoadOrientation, data["orientation"]),
             angle_deg=data.get("angle_deg", 0.0),
             id=data.get("id", str(uuid4())),
             name=data.get("name", ""),
             creates_excess_pore_pressure=bool(
                 data.get("creates_excess_pore_pressure", False)),
-            action=LoadAction(data.get("action", "variable")),
+            action=read_enum(LoadAction, data.get("action", "variable")),
         )
 
     def tooltip_html(self) -> str:

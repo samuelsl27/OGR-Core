@@ -1782,30 +1782,41 @@ class GeneralizedAnisotropic(StrengthModel):
         Kept against a COPY of the dict and compared by value, so a dict
         edited in place is rebuilt rather than served stale. Raises
         :class:`IncompleteGeneralizedAnisotropic` when it cannot be built.
+
+        v0.1.388 (V9 of the compute audit) — the hit asks nothing else: the
+        two imports and the child's label, which only a message reads, are
+        paid by :meth:`_build_child` on a miss. Tutorial 20 calls this
+        6 745 641 times with 3 misses; the comparison by value stays, since
+        it is what catches a rule edited in place.
         """
+        mdict = entry.get("model") if isinstance(entry, dict) else None
+        cached = self._built.get(key)
+        if cached is None or cached[0] is not mdict or cached[1] != mdict:
+            cached = self._build_child(key, mdict)
+        if isinstance(cached[2], Exception):
+            raise cached[2]
+        return cached[2]
+
+    def _build_child(self, key, mdict):
+        """Build and keep the model of a child: :meth:`_child_model`'s miss."""
         import copy
 
         from .strength_model import StrengthModel as _SM
 
         label = self.child_label(key)
-        mdict = entry.get("model") if isinstance(entry, dict) else None
-        cached = self._built.get(key)
-        if cached is None or cached[0] is not mdict or cached[1] != mdict:
-            if not mdict:
+        if not mdict:
+            built = IncompleteGeneralizedAnisotropic(
+                f"{label} has no model")
+        else:
+            try:
+                built = _SM.from_dict(mdict)
+            except Exception as exc:  # noqa: BLE001 - reported below
                 built = IncompleteGeneralizedAnisotropic(
-                    f"{label} has no model")
-            else:
-                try:
-                    built = _SM.from_dict(mdict)
-                except Exception as exc:  # noqa: BLE001 - reported below
-                    built = IncompleteGeneralizedAnisotropic(
-                        f"the model of {label} cannot be built: "
-                        f"{type(exc).__name__}: {exc}")
-            cached = (mdict, copy.deepcopy(mdict), built)
-            self._built[key] = cached
-        if isinstance(cached[2], Exception):
-            raise cached[2]
-        return cached[2]
+                    f"the model of {label} cannot be built: "
+                    f"{type(exc).__name__}: {exc}")
+        cached = (mdict, copy.deepcopy(mdict), built)
+        self._built[key] = cached
+        return cached
 
     def _rule_model(self, i: int, rule):
         """The model of rule ``i``; see :meth:`_child_model`."""
@@ -2023,15 +2034,32 @@ class GeneralizedAnisotropic(StrengthModel):
         return min(m.shear_strength(sigma_n_eff) for m in children)
 
     def shear_strength_ctx(self, sigma_n_eff, ctx: SliceContext | None = None):
+        return self._ctx_reader(ctx)(sigma_n_eff)
+
+    def shear_strength_reader(self, ctx: SliceContext | None):
+        """v0.1.391 (V12 of the compute audit) -- the rule that holds the base
+        found once for every stress read at this context
+        (``strength_model.local_c_phi`` reads three). A subclass with a
+        ``shear_strength_ctx`` of its own is read through it, as before."""
+        if (type(self).shear_strength_ctx
+                is not GeneralizedAnisotropic.shear_strength_ctx):
+            return super().shear_strength_reader(ctx)
+        return self._ctx_reader(ctx)
+
+    def _ctx_reader(self, ctx: SliceContext | None):
+        """The strength at ``ctx`` as a function of σ'ₙ: the one place the
+        context is resolved, for :meth:`shear_strength_ctx` and
+        :meth:`shear_strength_reader` alike. Raises where the model cannot
+        answer for this base, as the strength always did."""
         angle = math.degrees(ctx.base_angle_rad) if ctx is not None else 0.0
         # v0.1.225 (D218) -- the ABSOLUTE base inclination; no bedding is
         # subtracted. See the class docstring.
         if self.angle_or_surface:
-            return self._angle_or_surface_strength(sigma_n_eff, ctx, angle)
+            return lambda s: self._angle_or_surface_strength(s, ctx, angle)
         m = self._model_for_angle(angle)
         if getattr(m, "needs_context", False):
-            return m.shear_strength_ctx(sigma_n_eff, ctx)
-        return m.shear_strength(sigma_n_eff)
+            return lambda s: m.shear_strength_ctx(s, ctx)
+        return m.shear_strength
 
     def design_factored(self, factors: MaterialFactors) -> FactoredStrength:
         """Each child's model by its own category (v0.1.225, D224): the
