@@ -13,7 +13,9 @@ folders, and :func:`diff` names what changed. A change is a leak, and the
 run fails, unless:
 
 - the key did not exist before: a library imported, or the QApplication
-  made, for the first time. Not for an environment variable, and not for a
+  made, for the first time (what the file brought for the first time is
+  also what a rule of the allow-list is told: the modules it imported and
+  whether it made the application, :data:`FIRST_APPLICATION`). Not for an environment variable, and not for a
   value that comes from a test file (a function written in one, a mock):
   those are leaks however new;
 - it is an attribute of an ``ogr_*`` module imported for the first time
@@ -54,13 +56,14 @@ import contextlib
 import fnmatch
 import gc
 import os
+import subprocess
 import sys
 import threading
 import types
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 _SCALARS = (type(None), bool, int, float, complex, str, bytes)
 _CONTAINERS = ("list", "dict", "set", "bytearray", "deque", "OrderedDict",
@@ -72,6 +75,12 @@ FROM_A_TEST = "!test"
 
 #: Stands for a key that is not there.
 ABSENT = "(absent)"
+
+#: Among the names a rule receives as ``new`` (what this file brought for the
+#: first time): the QApplication was MADE in this file. Not a module's name,
+#: on purpose: importing Qt and making the application are two moments, and a
+#: chunk of ``--jobs`` can have them in two files.
+FIRST_APPLICATION = "<QApplication>"
 
 _UNKNOWN = object()
 
@@ -250,6 +259,9 @@ def _qt(s: dict) -> None:
     app = qtw.QApplication.instance()
     if app is None:
         return
+    # Not compared (see diff): says the application exists, so that the file
+    # that made it can be told from every file after it.
+    s["__application__"] = True
     try:
         qtg = sys.modules["PySide6.QtGui"]
         qtc = sys.modules["PySide6.QtCore"]
@@ -474,6 +486,46 @@ def from_value(value, to=None) -> Callable:
     return rule
 
 
+def environment_locale() -> Optional[tuple]:
+    """``(startup, adopted)``: what ``setlocale(LC_ALL)`` answers in a fresh
+    interpreter started with this process's environment — as it starts, and
+    once it has adopted the environment's locale (``setlocale(LC_ALL, "")``).
+    None when it cannot be measured.
+
+    Measured and not worked out: how a locale is spelt is the platform's
+    business (``LC_CTYPE=C.UTF-8;LC_NUMERIC=C;…`` in glibc, another shape on
+    macOS and on Windows), and a rule that parsed it would be right on the
+    machines it was written on."""
+    code = ("import locale; a = locale.setlocale(locale.LC_ALL); "
+            "b = locale.setlocale(locale.LC_ALL, ''); print(repr((a, b)))")
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True,
+            timeout=60, stdin=subprocess.DEVNULL,
+            # no console of its own on Windows, where a process without one
+            # would give this child a window
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if out.returncode != 0:
+            return None
+        startup, adopted = ast.literal_eval(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError, SyntaxError):
+        return None
+    if not (isinstance(startup, str) and isinstance(adopted, str)):
+        return None
+    return startup, adopted
+
+
+def ADOPTED_WITH_THE_FIRST_APPLICATION(was, now, new) -> bool:  # noqa: N802
+    """The process went from the locale the interpreter starts with to the
+    environment's, in the file that made the first QApplication. Only that
+    change and only there: any other locale, or the same change in another
+    file, is a leak."""
+    if FIRST_APPLICATION not in new:
+        return False
+    measured = environment_locale()
+    return measured is not None and (was, now) == measured
+
+
 def FILLED_ONCE(was, now, new) -> bool:  # noqa: N802
     """The same container, from empty to filled (see value_of)."""
     head = str(was).split(":len=", 1)
@@ -524,6 +576,18 @@ ALLOWED = (
           "per process, by the first file that needs one. Seen as a change "
           "when PySide6 was imported by an earlier file without making it, "
           "which a chunk of --jobs can do (v0.1.375)"),
+    Allow("locale", ADOPTED_WITH_THE_FIRST_APPLICATION,
+          "Qt, on Unix: constructing the first QCoreApplication calls "
+          "setlocale(LC_ALL, \"\") (its documentation says so, under «Locale "
+          "Settings»), so the process goes from the locale Python starts "
+          "with, where only LC_CTYPE comes from the environment, to the "
+          "environment's in every category. Once per process, and the "
+          "library's doing. Named in every Linux run of OGR Slip2D's CI since "
+          "its v0.1.377, at the first file that builds a QApplication "
+          "(LC_CTYPE=C.UTF-8;LC_NUMERIC=C;… → C.UTF-8), and never on Windows, "
+          "where Qt does not do it. From then on C functions that format or "
+          "read numbers follow that locale; Python's own float() and str() "
+          "do not"),
     # What a library does to the process the first time it is imported.
     Allow("env:PATH", first_import("PySide6"),
           "PySide6 puts its folder first on PATH when imported, for its "
@@ -586,6 +650,8 @@ def diff(before: dict, after: dict, allowed=None) -> list:
         allowed = ALLOWED
     new = (after.get("__modules__", frozenset())
            - before.get("__modules__", frozenset()))
+    if after.get("__application__") and not before.get("__application__"):
+        new = new | {FIRST_APPLICATION}
     out = []
     for key, now in after.items():
         if key.startswith("__"):

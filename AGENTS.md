@@ -6,19 +6,20 @@ finitos.
 
 **Dos niveles de nombre**: *OpenGeoRock* (u *OGR Suite*) es el paraguas de los programas de la
 suite; **OGR Core** es la biblioteca común. La distribución se llama `ogr-core` y el paquete de
-importación, `ogr_core`. De momento la usa **OGR FEM2D** (elementos finitos); **OGR Slip2D**
-(equilibrio límite), de cuyo núcleo sale, conserva por ahora su propia copia.
+importación, `ogr_core`. La usan **OGR Slip2D** (equilibrio límite), de cuyo núcleo sale, y
+**OGR FEM2D** (elementos finitos): los dos fijan una versión etiquetada.
 
 Autor y titular del copyright: Samuel Sáez López (UPCT). Licencia AGPL-3.0-or-later.
 
 > Este archivo es el **contrato de trabajo** con cualquier agente de IA. Se consulta antes de cada
 > acción. Deriva del `AGENTS.md` de OGR Slip2D, de donde sale el código.
 
-> **Estado (2026-11-18, v0.2.0):** el código es el núcleo de OGR Slip2D en su commit `d48e2b3`
-> (v0.1.471), con su malla y su filtración dentro de `ogr_core/fem/`, más el runner de la suite.
-> Con la v0.2.0 el núcleo vuelve a ser uno: OGR FEM2D la fija, y OGR Slip2D la adopta en la versión
-> que sigue a su v0.1.471 (hasta entonces lleva su propia copia, y un Slip2D así no comparte entorno
-> de Python con otro programa). De dónde sale cada parte: `docs/changelog/CHANGELOG_v0.2.0.md`.
+> **Estado (2026-11-20, v0.2.1):** hay un solo núcleo. El código es el de OGR Slip2D en su commit
+> `d48e2b3` (v0.1.471), con su malla y su filtración dentro de `ogr_core/fem/`, más el runner de la
+> suite (`docs/changelog/CHANGELOG_v0.2.0.md` dice de dónde sale cada parte). OGR Slip2D lo adoptó
+> en su v0.1.473 y OGR FEM2D en su v0.0.3; desde entonces **el código de `ogr_core` solo se cambia
+> en este repositorio**. Un Slip2D hasta la v0.1.471 lleva su propia copia y un paquete llamado
+> `ogr_fem2d`, y no comparte entorno de Python con otro programa de la suite.
 
 ---
 

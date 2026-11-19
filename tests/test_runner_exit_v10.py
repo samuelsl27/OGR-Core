@@ -25,7 +25,10 @@ Moved with the runner from OGR Slip2D's ``test_runner_exit_v1203``
   it lives in a test about something else (``test_rules_moved_v1194``), so
   neither the list of 0.1.0 nor that of 0.2.0 saw it, and the runner's code
   stood here with no test until OGR Slip2D's adoption census found the gap
-  (its spec 010).
+  (its spec 010). And **it is one of the tests declared** (OGR Core 0.2.1):
+  writing that test showed that the runner counted only ``def``, so an
+  async test was run and failed without being in ``--list`` nor in the
+  total, and the progress of its run went past 100 %.
 
 And one new, from moving the runner into the core's distribution:
 
@@ -229,8 +232,66 @@ class TestAnAsyncTestFailsInsteadOfPassingEmpty:
         out = buf.getvalue()
         assert code == 1, out
         assert "Total: 2    Passed: 1    Failed: 1" in out, out
+        # counted among the declared: the progress ends at two of two
+        assert "[2/2 100%]" in out and "/1 " not in out, out
         assert "✗ test_async_one: TypeError: test_async_one is `async def`"             in out, out
         assert not ran, "the body of the async test ran"
+
+
+class TestAnAsyncTestIsOneOfTheTestsDeclared:
+    def _folder(self):
+        folder = Path(tempfile.mkdtemp(prefix="ogr_test_async_declared_"))
+        (folder / "test_async_synthetic_v021.py").write_text(
+            _ASYNC_FILE.format(mark=str(folder / "never-written")),
+            encoding="utf-8")
+        return folder
+
+    def test_it_is_counted_and_listed(self):
+        folder = self._folder()
+        try:
+            f = folder / "test_async_synthetic_v021.py"
+            declared = _R._declared_tests([f])
+            assert [(c, m) for _f, c, m in declared] == [
+                ("TestA", "test_async_one"), ("TestA", "test_plain")], declared
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                code = _R.main(folder, list_only=True)
+            out = buf.getvalue()
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        assert code == 0, out
+        assert "test_async_synthetic_v021.py::TestA::test_async_one" in out
+        assert "2 test(s) in 1 file(s)" in out, out
+
+    def test_k_selects_it_like_any_other(self):
+        folder = self._folder()
+        try:
+            f = folder / "test_async_synthetic_v021.py"
+            assert [m for _f, _c, m in _R._declared_tests([f], "async_one")] \
+                == ["test_async_one"]
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def test_in_chunks_the_run_fails_for_the_test_not_for_the_count(self):
+        """With --jobs the chunks' tests must add up to the tests declared;
+        an async test used to break that sum, and the run was reported as
+        chunks that ran what the source did not declare."""
+        folder = self._folder()
+        (folder / "test_plain_synthetic_v021.py").write_text(
+            "class TestB:\n    def test_b(self):\n        pass\n",
+            encoding="utf-8")
+        saved_path = list(sys.path)
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                code = _R.main(folder, jobs=2)
+        finally:
+            sys.path[:] = saved_path
+            shutil.rmtree(folder, ignore_errors=True)
+        out = buf.getvalue()
+        assert code == 1, out
+        assert "Total: 3    Passed: 2    Failed: 1" in out, out
+        assert "[CHUNK]" not in out and "the source declares" not in out, out
 
 
 def _fresh(code: str) -> str:
