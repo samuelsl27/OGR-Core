@@ -123,8 +123,9 @@ Los programas se desarrollan a la vez. Para que el núcleo no vuelva a separarse
 
 - **Un solo `main`**, siempre publicable, con etiquetas de versión. **Sin ramas largas por
   programa**: dos ramas largas son dos copias otra vez.
-- **Cada cambio, en una rama corta con su PR.** La suite de este repositorio la corre la CI; las
-  de los programas, la regla 8, a mano mientras la CI no las corra.
+- **Cada cambio, en una rama corta con su PR.** La CI corre la suite de este repositorio y, contra
+  el núcleo de la PR, la de los programas que tienen su trabajo (hoy OGR FEM2D, en Linux). La de
+  los demás, y la regla 8 antes de etiquetar, a mano.
 - **El código de `ogr_core` solo se cambia aquí.** La sesión de un programa que necesita algo del
   núcleo lo pide; no lo edita ni lo copia. Y desde aquí no se edita un programa: lo que un programa
   tiene que cambiar se le da escrito a su sesión (regla 10).
