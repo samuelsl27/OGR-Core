@@ -86,6 +86,22 @@ after its totals, as a filtered run does: it is not evidence for a release
 of the program. With nothing to accept it stops with code 2 (rule 7: an
 option that did nothing would read as a check that passed).
 
+For its length, a run that accepted a development version says so in the
+environment (``OGR_DEV_CORE=1``, see :data:`DEV_CORE_ENV`), which is how the
+tests and the processes they start know it:
+
+* a test asks :func:`dev_core_run`. A program's test of "the core imported
+  is the one pinned" is false by construction in such a run; what it checks
+  instead is ``shared_problems(origins, pinned, dev_core=dev_core_run())``,
+  which is what the run itself was held to;
+* a runner started inside the run — a test that relaunches
+  ``tests/_runner.py``, which is another process and was not given the
+  option — accepts the same development version, and says ``DEV CORE`` too.
+
+The variable accepts nothing the option would not, and unlike the option it
+never stops a run: with nothing to accept, the run is an ordinary one
+against the pinned core. The run puts the variable back when it ends.
+
 What a file leaves behind
 -------------------------
 
@@ -150,6 +166,7 @@ from __future__ import annotations
 import argparse
 import ast
 import codecs
+import functools
 import gc
 import importlib.util
 import inspect
@@ -505,6 +522,45 @@ def _is_dev_of_later(have: Optional[str], want: str) -> bool:
     n = max(len(base), len(pinned))
     pad = lambda t: t + (0,) * (n - len(t))  # noqa: E731
     return pad(base) > pad(pinned)
+
+
+#: v0.2.2 — the environment variable a run that accepted a development
+#: version of the core sets to ``"1"`` for its length: what its tests read
+#: (:func:`dev_core_run`) and what a runner started inside it inherits.
+DEV_CORE_ENV = "OGR_DEV_CORE"
+
+
+def dev_core_run() -> bool:
+    """Whether this process belongs to a run that accepted a development
+    version of a shared package (``--dev-core``).
+
+    v0.2.2. The first whole suites run with the option (OGR FEM2D and OGR
+    Slip2D against 0.2.1.dev0) each failed a handful of tests that could
+    not have passed: the ones that say the imported core is the pinned one,
+    and the ones that start the repository's runner again, in a process
+    that had not been given the option and so refused the core. A program
+    cannot come out green of the run a change of the core asks it for
+    unless its tests can tell which run they are in.
+
+    Only ``"1"`` counts: any other value is not this run saying so.
+    """
+    return os.environ.get(DEV_CORE_ENV) == "1"
+
+
+def _puts_back_dev_core(fn):
+    """``fn`` leaves :data:`DEV_CORE_ENV` as it found it: a run called from
+    a test must not turn the rest of that suite into a development run."""
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        saved = os.environ.get(DEV_CORE_ENV)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            if saved is None:
+                os.environ.pop(DEV_CORE_ENV, None)
+            else:
+                os.environ[DEV_CORE_ENV] = saved
+    return run
 
 
 def shared_problems(origins: dict, pinned: dict,
@@ -1483,6 +1539,7 @@ def _run_jobs(tests_dir: Path, test_files, k, jobs: int, declared,
     return 0 if failed == 0 and leaked == 0 and not died else 1
 
 
+@_puts_back_dev_core
 def main(tests_dir: Path, patterns=(), k: str | None = None,
          list_only: bool = False, *, jobs: int = 1,
          child: str | None = None, fast: bool = False,
@@ -1509,7 +1566,8 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
     ``tests_dir.parent``. ``shared`` are the packages it takes from another
     tree (the core, for a program), and ``pinned`` maps each to the version
     it pins (:func:`pinned_from_pyproject`); ``dev_core`` accepts a
-    development version of a later release instead (``--dev-core``).
+    development version of a later release instead (``--dev-core``), and so
+    does a run started inside one that did (:func:`dev_core_run`).
 
     ``hooks`` — see :class:`Hooks`. ``allowed`` — the program's own entries
     of the leak check's allow-list, added to the suite's
@@ -1583,6 +1641,11 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
               "then run again.")
         return 2
     shared_origins = package_origins(shared)
+    # v0.2.2 — a run started inside one that accepted a development version
+    # accepts it too: it is a process of that run, started by one of its
+    # tests, and nobody typed its command line.
+    asked = dev_core
+    dev_core = asked or dev_core_run()
     problems = shared_problems(shared_origins, pinned, dev_core)
     if problems:
         print("WRONG SHARED TREE — this suite would not test against the "
@@ -1594,11 +1657,16 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
               "editable tree, then run again.")
         return 2
     dev = shared_dev(shared_origins, pinned) if dev_core else []
-    if dev_core and not dev:
+    if asked and not dev:
         # Rule 7: an option that did nothing would read as a check passed.
+        # Only the option: the variable is inherited, not typed, and a run
+        # it finds nothing for is an ordinary run against the pinned core
+        # (a test that runs a folder of its own inside a development run).
         print("--dev-core has nothing to accept: no shared package is at a "
               "development version of a release later than its pin.")
         return 2
+    if dev:
+        os.environ[DEV_CORE_ENV] = "1"
     dev_banner = [
         f"DEV CORE — {name} {have} runs in place of the pinned {want} — "
         f"NOT evidence for a release" for name, have, want in dev]
@@ -1718,7 +1786,7 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
             entry = own_runner if own_runner.is_file() else Path(__file__)
         return _run_jobs(
             tests_dir, test_files, k, jobs, declared, banners, kept,
-            Path(entry).resolve(), ["--dev-core"] if dev_core else [],
+            Path(entry).resolve(), ["--dev-core"] if dev else [],
             {"own": list(own), "shared": list(shared), "pinned": pinned,
              "run_folders": folders})
 
@@ -1807,7 +1875,8 @@ def _parse_args(argv, prog: str = "python tests/_runner.py"):
         "--dev-core", dest="dev_core", action="store_true",
         help="run against a shared package that is a development version "
              "(X.Y.Z.devN) of a release later than the pinned one; not "
-             "evidence for a release, and the run says so.")
+             "evidence for a release, and the run says so. Its tests and "
+             f"the runs they start see {DEV_CORE_ENV}=1.")
     # How a run with --jobs starts each chunk; not for typing.
     p.add_argument("--child", metavar="SPEC", default=None,
                    help=argparse.SUPPRESS)

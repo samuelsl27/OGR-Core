@@ -6,7 +6,7 @@ malla y el solver de filtración por elementos finitos.
 
 [English version](README.md)
 
-> **Estado: 0.2.1.** El código es el núcleo de
+> **Última versión publicada: 0.2.2.** El código es el núcleo de
 > [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) tal como estaba en ese programa en su commit
 > `d48e2b3` (v0.1.471), con su malla y su filtración por elementos finitos dentro de `ogr_core.fem`.
 > Desde la 0.2.0 hay un solo núcleo para todos los programas de la suite, y se cambia solo aquí.
@@ -32,9 +32,11 @@ pip install -e .
 python tests/_runner.py
 ```
 
-Para trabajar en un programa con un núcleo local, se instala primero este repositorio en editable y
-después el programa. El runner del programa dice de qué árbol, de qué commit y de qué versión sale
-el núcleo, y se niega a ejecutar si la versión no es la que fija.
+Cada programa fija una versión etiquetada de este núcleo y la instala desde su etiqueta. El runner
+del programa dice de qué árbol, de qué commit y de qué versión sale el núcleo, y se niega a
+ejecutar si la versión no es la que fija. Para probar un programa contra un núcleo que se está
+cambiando, se pone ese árbol en `PYTHONPATH` y se le pide al runner con `--dev-core`. Qué versión
+fija cada programa y cómo se pide un cambio: [`docs/consumidores.md`](docs/consumidores.md).
 
 ## Reglas
 
