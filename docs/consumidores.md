@@ -8,15 +8,22 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 
 | Programa | Repositorio | Núcleo que fija | Desde | Suite entera |
 |---|---|---|---|---|
-| OGR Slip2D | `samuelsl27/OGR-Slip2D` | `v0.2.1` | su v0.1.474 | `QT_QPA_PLATFORM=offscreen python tests/_runner.py --jobs 4` |
-| OGR FEM2D | `samuelsl27/OGR-FEM2D` | `v0.2.0` | su v0.0.3 | `python tests/_runner.py` |
+| OGR Slip2D | `samuelsl27/OGR-Slip2D` | `v0.2.2` | su v0.1.475 | `QT_QPA_PLATFORM=offscreen python tests/_runner.py --jobs 4` |
+| OGR FEM2D | `samuelsl27/OGR-FEM2D` | `v0.2.2` | su v0.0.4 | `python tests/_runner.py` |
 
 - **La verdad es el `pyproject.toml` de cada programa** (`ogr-core @ git+…@vX.Y.Z`). Esta tabla la
   repite para que se vea de un vistazo quién se queda atrás, y se corrige aquí cuando un programa
   sube su fijación. Un test de este repositorio (`tests/test_consumers_v022.py`) comprueba su
-  forma, que cada versión fijada existe y que ningún comando filtra; **no** puede comprobar que
-  coincide con el programa, porque eso está en otro repositorio. Lo comprobará la CI cuando corra
-  las suites de los programas (ver «En curso»).
+  forma, que cada versión fijada existe y que ningún comando filtra. Que coincide con el programa
+  lo comprueba la CI, que es quien puede leer otro repositorio: el trabajo `pins` compara cada
+  fila con el `pyproject.toml` de la rama principal del programa, y **se pone en rojo cuando un
+  programa sube su fijación y esta tabla no se ha corregido**. Ese rojo se arregla aquí, en la
+  fila.
+- **La CI de este repositorio lee esta tabla** (`.github/scripts/program_suite.py`): de aquí salen
+  el repositorio, la fijación y el comando de cada programa. Corre la suite entera de OGR FEM2D
+  contra el núcleo de cada commit. La de OGR Slip2D, todavía no (ver «En curso»); el porqué está
+  también en `tests/test_ci_programs_v023.py`, que falla si un programa de la tabla no tiene su
+  trabajo ni una razón escrita.
 - **«Suite entera»** es el comando que el `AGENTS.md` del programa da para publicar, con el Python
   de su `.venv` y desde su carpeta. Es el de la regla 8: entera quiere decir sin filtrar (sin
   patrones, sin `-k`, sin `--fast`); `--jobs` no filtra. Contra un núcleo que se está cambiando se
@@ -28,8 +35,10 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 
 | Cambio | Para quién | Estado |
 |---|---|---|
-| La CI de este repositorio corre la suite de cada programa contra el núcleo de la PR | Los dos | Pendiente: va después de que los dos fijen la v0.2.2. La de OGR Slip2D, cuando su suite esté en verde en Linux |
+| La CI de este repositorio corre la suite de cada programa contra el núcleo de la PR | Los dos | La de OGR FEM2D, hecha (hacia la v0.2.3). La de OGR Slip2D, cuando su suite esté en verde en Linux: le quedan cinco fallos suyos, aparcados |
+| El mensaje «WRONG SHARED TREE» del runner deja de recomendar el árbol en editable | Los dos (lo pidió OGR FEM2D) | Pendiente, hacia la v0.2.3 |
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
+| Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
 
 Una fila sale de aquí cuando el cambio está en una versión etiquetada: desde entonces lo cuenta
 su changelog.
@@ -53,7 +62,8 @@ algo del núcleo **no lo edita ni lo copia**: lo pide.
    ```
 
    La corrida dice `DEV CORE` antes y después de sus totales y no es evidencia para publicar el
-   programa. Sus tests y los runners que relancen lo saben por `OGR_DEV_CORE=1`.
+   programa. Sus tests y los runners que relancen lo saben por `OGR_DEV_CORE=1`. La CI hace esa
+   misma corrida en Linux, en cada commit, para los programas que tienen su trabajo.
 4. Se etiqueta la versión, con su changelog, que dice **qué tiene que cambiar cada programa**.
 
 ## Cómo sube un programa la versión que fija
@@ -72,7 +82,8 @@ En un commit suyo y a propósito; nunca fija una rama.
 3. Lo que el changelog de esa versión del núcleo le pida.
 4. Su suite entera, que ahora mide el núcleo fijado: la cabecera del runner lo nombra
    (`shared: ogr_core X.Y.Z …`) y se niega si no es ese.
-5. La fila de la tabla de arriba, que se corrige en este repositorio.
+5. La fila de la tabla de arriba, que se corrige en este repositorio. Hasta entonces el trabajo
+   `pins` de su CI está en rojo.
 
 ## Versiones del núcleo
 

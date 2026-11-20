@@ -45,6 +45,78 @@ jobs:
           PYTHONFAULTHANDLER: "1"
         run: python tests/_runner.py
 
+  # v0.2.3 — the programs that use this core. Which they are, the tag each
+  # one pins and the command of its whole suite are read from
+  # docs/consumidores.md by .github/scripts/program_suite.py: none of it is
+  # repeated here. tests/test_ci_programs_v023.py holds that every program
+  # of the table has its job below, or a stated reason not to have it yet.
+  pins:
+    name: The programs pin what the table says
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: core
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Only the pyproject.toml of each program, from its default branch:
+      # that file is the truth, and the table repeats it.
+      - name: pyproject.toml of OGR Slip2D
+        uses: actions/checkout@v7
+        with:
+          repository: samuelsl27/OGR-Slip2D
+          path: programs/slip2d
+          sparse-checkout: pyproject.toml
+          sparse-checkout-cone-mode: false
+      - name: pyproject.toml of OGR FEM2D
+        uses: actions/checkout@v7
+        with:
+          repository: samuelsl27/OGR-FEM2D
+          path: programs/fem2d
+          sparse-checkout: pyproject.toml
+          sparse-checkout-cone-mode: false
+      - name: Compare each pin with its row of docs/consumidores.md
+        # Needs nothing installed: the script reads the core of this tree.
+        run: >-
+          python core/.github/scripts/program_suite.py pins
+          "OGR Slip2D=programs/slip2d"
+          "OGR FEM2D=programs/fem2d"
+
+  fem2d:
+    name: OGR FEM2D against this core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: core
+      - uses: actions/checkout@v7
+        with:
+          repository: samuelsl27/OGR-FEM2D
+          path: program
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Build and install the program
+        # As the program's own CI does, without its matrix: the wheel (its
+        # Rust engine, built with the toolchain of the runner), installed
+        # with its dependencies -- ogr-core from the tag it pins -- and the
+        # compiled module put in the tree, where its suite runs.
+        working-directory: program
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip wheel . --no-deps --wheel-dir dist
+          python -m pip install dist/*.whl
+          python .github/scripts/wheel_check.py extract dist/*.whl
+      - name: Its whole suite against the core of this commit
+        # The core of this checkout goes ahead of the installed one, and
+        # the program's runner is asked to accept it (--dev-core): its
+        # header names the tree and the version it measured.
+        env:
+          PYTHONFAULTHANDLER: "1"
+          PYTHONUNBUFFERED: "1"
+        run: python core/.github/scripts/program_suite.py run "OGR FEM2D" program
+
   licence:
     name: Licence consistency
     runs-on: ubuntu-latest
