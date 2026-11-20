@@ -777,6 +777,18 @@ def _suggest(every, patterns) -> list[str]:
 
 
 # --- Discovery & runner -----------------------------------------------
+def _on_path(folder: Path) -> bool:
+    """Whether ``folder`` is already an entry of ``sys.path``, however it is
+    written there (relative, another case on Windows, the empty entry that
+    stands for the working directory)."""
+    def same(entry) -> str:
+        # abspath("") is the working directory, which is what "" means there
+        return os.path.normcase(os.path.abspath(entry))
+
+    want = same(str(folder))
+    return any(same(p) == want for p in sys.path if isinstance(p, str))
+
+
 def _load_module(path: Path):
     spec = importlib.util.spec_from_file_location(path.stem, path)
     mod = importlib.util.module_from_spec(spec)
@@ -1225,6 +1237,17 @@ def _run_files(test_files, k, tally: _Tally, around: _Around, *,
         # pool of 4 went from 0.5 s to 2.4-3.6 s, audit §4.3). Two runner
         # self-tests repoint the folders through a second main() (audit D-d).
         saved_path = list(sys.path)
+        # v0.2.3 — and the file's own folder is on it while the file loads
+        # and runs, so that a test file can import another one however the
+        # run was started. ``python tests/_runner.py`` has it there already
+        # (the interpreter puts the script's folder first) and nothing is
+        # added; a run started with ``runpy``, a chunk of a folder with no
+        # runner of its own, and a ``main()`` driven by a test did not, and
+        # there such a file failed to load (found in the core's own suite,
+        # v0.2.3). First, as the interpreter has it; taken out with the
+        # rest when the path is put back, below.
+        if not _on_path(f.parent):
+            sys.path.insert(0, str(f.parent))
         saved_folders = {v: os.environ.get(v) for v in around.folders}
         start = (tally.passed, tally.failed, tally.skipped,
                  len(tally.fail_details))
@@ -1653,8 +1676,15 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
         for p in problems:
             print(f"  {p}")
         print(f"  this runner lives in {repo_root}")
-        print("Install the pinned version, or check out its tag in the "
-              "editable tree, then run again.")
+        # v0.2.3 — this said "or check out its tag in the editable tree":
+        # the one thing the suite stopped doing with v0.2.2, where every
+        # program's environment has the pinned tag installed so that two
+        # programs can pin different versions (asked for by OGR FEM2D).
+        # Nothing about --dev-core here: the option is named above, on the
+        # line of the package it would help with, and only there (v0.2.0).
+        print("Install in this environment the version pyproject.toml "
+              "pins (with pip's --no-deps --force-reinstall), then run "
+              "again.")
         return 2
     dev = shared_dev(shared_origins, pinned) if dev_core else []
     if asked and not dev:
