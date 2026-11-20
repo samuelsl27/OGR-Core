@@ -38,6 +38,16 @@ Invariants protected:
 6. **Every entry of the suite's list says why**, names a kind of key the
    snapshot takes, and names no program: what ``ogr_gui`` keeps is OGR
    Slip2D's to explain, in its own list.
+7. **The locale Qt adopts, and nothing else of the locale** (OGR Core
+   0.2.1). On Unix the first QApplication makes the process adopt the
+   environment's locale (``setlocale(LC_ALL, "")``), and from OGR Slip2D
+   v0.1.377 every Linux run of its CI named that as a leak of the first
+   file that builds one. It is allowed in that file and for that change
+   only: the same change in any other file, any other locale in that file,
+   or a start that is not the interpreter's own, are leaks. The two values
+   are measured in a fresh interpreter, never worked out from how a
+   platform spells a locale; here they are both the ones of Slip2D's CI,
+   as literals, and the ones of whatever machine runs this.
 
 How: ``main()`` over throwaway files, as ``test_runner_state_v020`` does.
 The inner run shares this process, so its leaks are this file's too: each
@@ -48,13 +58,18 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import types
 from pathlib import Path
+
+import pytest  # the runner's own
 
 from ogr_core.testing import leaks as _leaks
 from ogr_core.testing import runner as _R
@@ -336,6 +351,138 @@ class TestAProgramsListAddsToTheSuites:
         assert _leaks_in(allowed, "test_a_marks.py") == []
 
 
+#: The two values of OGR Slip2D's CI (ubuntu, Python 3.11 to 3.13), whole:
+#: what glibc answers as the interpreter starts, and once Qt has made the
+#: process adopt the environment's locale.
+_LINUX_STARTUP = ("LC_CTYPE=C.UTF-8;LC_NUMERIC=C;LC_TIME=C;LC_COLLATE=C;"
+                  "LC_MONETARY=C;LC_MESSAGES=C;LC_PAPER=C;LC_NAME=C;"
+                  "LC_ADDRESS=C;LC_TELEPHONE=C;LC_MEASUREMENT=C;"
+                  "LC_IDENTIFICATION=C")
+_LINUX_ADOPTED = "C.UTF-8"
+_APP = "__application__"
+
+#: What a fresh interpreter does to see the real thing (see the test).
+_ADOPTS = """
+    import json, locale
+    from ogr_core.testing import leaks
+
+    def named(found):
+        return [list(f) for f in found if f[0] == "locale"]
+
+    before = leaks.snapshot()
+    try:
+        locale.setlocale(locale.LC_ALL, "")
+    except locale.Error as exc:
+        print(json.dumps({"error": str(exc)}))
+        raise SystemExit(0)
+    after = leaks.snapshot()
+    made = dict(after, __application__=True)
+    locale.setlocale(locale.LC_ALL, "C")
+    other = dict(leaks.snapshot(), __application__=True)
+    print(json.dumps({
+        "startup": before["locale"], "adopted": after["locale"],
+        "measured": leaks.environment_locale(),
+        "with_the_application": named(leaks.diff(before, made)),
+        "without_it": named(leaks.diff(before, after)),
+        "another_locale": named(leaks.diff(before, other))}))
+"""
+
+
+@contextlib.contextmanager
+def _measuring(answer):
+    """The check, told what a fresh interpreter would measure."""
+    saved = _leaks.environment_locale
+    _leaks.environment_locale = lambda: answer
+    try:
+        yield
+    finally:
+        _leaks.environment_locale = saved
+
+
+class TestTheLocaleQtAdopts:
+    def _diff(self, was, now, app_before=False, app_after=True):
+        before = _snap(locale=was)
+        after = _snap(locale=now)
+        if app_before:
+            before[_APP] = True
+        if app_after:
+            after[_APP] = True
+        with _measuring((_LINUX_STARTUP, _LINUX_ADOPTED)):
+            return _leaks.diff(before, after)
+
+    def test_in_the_file_that_makes_the_first_application_it_is_not_a_leak(self):
+        assert self._diff(_LINUX_STARTUP, _LINUX_ADOPTED) == []
+
+    def test_the_same_change_in_any_other_file_is(self):
+        # the application was there already: a later file
+        got = self._diff(_LINUX_STARTUP, _LINUX_ADOPTED, app_before=True)
+        assert got == [("locale", _LINUX_STARTUP, _LINUX_ADOPTED)], got
+        # and a file in a process with no application at all
+        assert self._diff(_LINUX_STARTUP, _LINUX_ADOPTED,
+                          app_after=False) != []
+
+    def test_another_locale_in_that_file_is(self):
+        assert self._diff(_LINUX_STARTUP, "es_ES.UTF-8") != []
+        # one category moved after adopting is another locale too
+        moved = _LINUX_STARTUP.replace("LC_NUMERIC=C", "LC_NUMERIC=es_ES.UTF-8")
+        assert self._diff(_LINUX_STARTUP, moved) != []
+
+    def test_a_start_that_is_not_the_interpreters_is(self):
+        assert self._diff("es_ES.UTF-8", _LINUX_ADOPTED) != []
+
+    def test_it_is_a_leak_when_it_cannot_be_measured(self):
+        before = _snap(locale=_LINUX_STARTUP)
+        after = _snap(locale=_LINUX_ADOPTED, **{_APP: True})
+        with _measuring(None):
+            assert _leaks.diff(before, after) != []
+
+    def test_making_the_application_is_what_the_rule_is_told(self):
+        seen = []
+
+        def probe(was, now, new):
+            seen.append(_leaks.FIRST_APPLICATION in new)
+            return True
+
+        entry = (_leaks.Allow("locale", probe, "a probe of this test's own, "
+                              "to see what a rule is told"),)
+        a, b = _snap(locale="x"), _snap(locale="y")
+        _leaks.diff(a, dict(b, **{_APP: True}), entry)        # made here
+        _leaks.diff(dict(a, **{_APP: True}), dict(b, **{_APP: True}), entry)
+        _leaks.diff(a, b, entry)                              # never made
+        assert seen == [True, False, False], seen
+
+    def test_the_mark_is_not_itself_compared(self):
+        assert _leaks.diff(_snap(), _snap(**{_APP: True})) == []
+        assert _leaks.diff(_snap(**{_APP: True}), _snap()) == []
+
+    def test_on_this_machine_with_its_own_locale(self):
+        """The real thing, end to end, with no literal: a fresh interpreter
+        takes a snapshot, adopts the environment's locale as Qt does, and
+        takes another. With the application made in between it is no leak;
+        without it, or with another locale, it is."""
+        tree = str(Path(_R.__file__).resolve().parents[2])
+        env = dict(os.environ)
+        env["PYTHONPATH"] = tree + os.pathsep + env.get("PYTHONPATH", "")
+        out = subprocess.run(
+            [sys.executable, "-c", textwrap.dedent(_ADOPTS)], env=env,
+            capture_output=True, text=True, timeout=180,
+            stdin=subprocess.DEVNULL)
+        assert out.returncode == 0, out.stderr
+        got = json.loads(out.stdout.strip().splitlines()[-1])
+        if "error" in got:
+            pytest.skip(f"this environment's locale cannot be set: "
+                        f"{got['error']}")
+        if got["startup"] == got["adopted"]:
+            pytest.skip("on this machine the environment's locale is the one "
+                        f"the interpreter starts with ({got['startup']!r}): "
+                        "there is no change to allow")
+        assert got["measured"] == [got["startup"], got["adopted"]], got
+        assert got["with_the_application"] == [], got
+        assert got["without_it"] == [["locale", got["startup"],
+                                      got["adopted"]]], got
+        assert got["another_locale"] != [], got
+
+
 class TestTheRunsOwnFolders:
     def test_an_ini_with_its_keys_removed_is_the_same_as_none(self):
         folder = Path(tempfile.mkdtemp(prefix="ogr_test_leaks_ini_"))
@@ -401,7 +548,7 @@ class TestTheAllowList:
 
     def test_every_entry_names_a_kind_of_key_the_snapshot_takes(self):
         kinds = ("mod:", "cls:", "env:", "qt.", "sys.", "warnings.",
-                 "random.", "mpl.", "mp.", "builtins.")
+                 "random.", "mpl.", "mp.", "builtins.", "locale")
         for a in _leaks.ALLOWED:
             assert a.key.startswith(kinds), a.key
 

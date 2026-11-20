@@ -26,6 +26,7 @@ kept growing on its own after 0.1.0 was cut: the leak check after every file
 (:mod:`ogr_core.testing.leaks`), the run in chunks, the slow list, and the
 exit code that is the verdict. What 0.1.0 had added here (own and shared
 packages, the pinned version, the hooks, a worktree's commit) is kept.
+From there on it changes here and nowhere else.
 
 Running a part of it
 --------------------
@@ -684,7 +685,13 @@ def _declared_tests(files, expr: str | None = None):
                     and node.name.startswith("Test")):
                 continue
             for m in node.body:
-                if (isinstance(m, ast.FunctionDef)
+                # ``async def`` too: the loop runs it (to fail it, see
+                # ``_run_method``), so it is one of the tests declared. Left
+                # out, as it was until OGR Core 0.2.1, it did not show in
+                # ``--list``, the progress went past 100 % and a run with
+                # ``--jobs`` said the chunks ran a test the source did not
+                # declare.
+                if (isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
                         and m.name.startswith("test_")
                         and match_test(node.name, m.name, expr)):
                     found.append((f, node.name, m.name))
