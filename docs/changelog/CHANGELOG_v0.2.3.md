@@ -1,12 +1,14 @@
 # OGR Core v0.2.3
 
-> **En curso.** `main` dice `0.2.3.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
-
 **La forma de trabajar con un núcleo y varios programas, segunda parte**: la CI de este
 repositorio corre la suite entera de un programa contra el núcleo de cada commit, y compara lo que
-fija cada programa con lo que dice `docs/consumidores.md`. El código de `ogr_core` no cambia
-todavía: `git diff v0.2.2 -- ogr_core` solo toca el número de versión.
+fija cada programa con lo que dice `docs/consumidores.md`. Y dos cambios pequeños del runner: pone
+la carpeta de cada archivo de test en la ruta de importación, se arranque como se arranque, y su
+consejo ante un núcleo que no es el fijado deja de nombrar el árbol en editable. El código de
+cálculo no cambia: `git diff v0.2.2 -- ogr_core` solo toca `ogr_core/testing/runner.py` y el
+número de versión.
+
+Es compatible: ningún programa tiene que cambiar nada.
 
 ## 0. Lo que se encontró
 
@@ -65,11 +67,25 @@ todavía: `git diff v0.2.2 -- ogr_core` solo toca el número de versión.
   nadie relanza ese archivo. Se reportó antes de tocarlo. Arreglado donde estaba la diferencia, en
   el lanzamiento de ese test, que ahora pone la carpeta como la pone el intérprete. Que lo
   garantice el runner compartido queda pendiente (§4): lo necesitan los tres repositorios.
+- **El problema de la ruta era más ancho que el test que falló.** Leyendo el runner salieron tres
+  formas de arrancar en las que un test no podía importar a otro: con `runpy`; en los trozos de
+  `--jobs` de una carpeta sin `_runner.py` propio, que arrancan por la ruta del módulo del runner;
+  y en un `main()` conducido por un test sobre una carpeta suya. El runner pone ahora la carpeta
+  de cada archivo, la primera, mientras ese archivo carga y corre, y la quita con el resto de la
+  ruta al terminar el archivo, como ya hacía. En una corrida normal la carpeta ya está y no se
+  añade nada. La línea que se había puesto en `test_runner_shutdown_v020` sobra y se quita: ese
+  test pasa a ser una prueba más.
+- **Error propio, cazado por un test de la v0.2.0.** La primera redacción del consejo de
+  «WRONG SHARED TREE» nombraba `--dev-core` en todos los rechazos. La suite entera dio 794 de 795:
+  `test_and_the_message_names_the_option` (`test_runner_dev_core_v020`) protege que la opción solo
+  se nombre donde serviría, y un núcleo anterior al fijado no debe recibir esa pista. El test
+  tenía razón y no se tocó. El consejo dice ahora solo cómo conseguir la versión fijada; la
+  opción sigue nombrada en la línea del paquete al que le serviría, como desde la v0.2.0.
 - **Los programas tienen el mismo patrón.** OGR FEM2D busca igual
   (`tests/test_project_setup_v001.py`) y tiene un `.py` en una carpeta oculta,
   `.github/scripts/wheel_check.py`, que lleva su cabecera sin que nada lo compruebe. OGR Slip2D
   busca igual (`tests/test_license_v143.py`) y hoy no tiene ningún `.py` oculto. Leído, no
-  tocado: es de sus sesiones.
+  tocado: es de sus sesiones. OGR FEM2D lo arregló el mismo día en su v0.0.5 (`a4965b7`).
 - **Un diente que faltaba, encontrado al meter los errores.** El script mira de dónde sale
   `ogr_core` antes de arrancar la suite. Quitar esa comprobación no hacía fallar ningún test: con
   el `PYTHONPATH` bien ordenado nunca tiene nada que decir. Tiene ahora su caso propio (un
@@ -80,6 +96,17 @@ todavía: `git diff v0.2.2 -- ogr_core` solo toca el número de versión.
   traspaso, y lo reportó.
 
 ## 1. Qué cambia
+
+**`ogr_core/testing/runner.py`**
+
+- La carpeta de cada archivo de test está en `sys.path`, la primera, mientras ese archivo carga y
+  corre (`_on_path` decide si ya estaba, se escriba como se escriba esa entrada). Se quita al
+  devolver la ruta, al final de cada archivo.
+- El consejo de «WRONG SHARED TREE» pasa de «Install the pinned version, or check out its tag in
+  the editable tree» a decir cómo se instala la versión que fija `pyproject.toml`. Lo pidió
+  OGR FEM2D. «WRONG TREE», que habla de los paquetes del propio programa, no cambia.
+- `tests/test_runner_v023.py`, nuevo (12 casos): un test que importa a otro carga en las cuatro
+  formas de arrancar; en la normal no se añade nada; la ruta queda como estaba; y el consejo.
 
 **`.github/scripts/program_suite.py`**, nuevo. Lee `docs/consumidores.md` con el lector de
 `tests/test_consumers_v022.py` y hace dos cosas:
@@ -143,6 +170,9 @@ una corrida con un programa inventado hace lo que dice.
 
 Nada.
 
+Un test de un programa que arrancaba el runner de otra manera y por eso ponía él mismo `tests/` en
+la ruta ya no necesita hacerlo; puede dejarlo como está.
+
 Una recomendación, que no obliga: el test de cabeceras de licencia de cada programa busca con el
 mismo patrón que el de aquí y tampoco entra en las carpetas ocultas (§0). OGR FEM2D tiene ya un
 `.py` en una.
@@ -197,10 +227,42 @@ la comprobación de cabeceras. Y cuatro sobre el script de la CI, que son el cas
 cabecera, sin su línea de copyright, con una marca comercial y con sintaxis que Python 3.11 no
 tiene; cada uno hace fallar el test que le toca.
 
+**El runner** (los dos cambios de `ogr_core`).
+
+| Qué | Resultado |
+|---|---|
+| Suite del núcleo, `--jobs 4`, con la primera redacción del consejo | 794 de 795: el error propio de §0 |
+| Suite del núcleo, `--jobs 4`, corregido | 796 de 796, código 0, ninguna fuga (784 y 12 nuevos) |
+| OGR FEM2D `7de973a` (su v0.0.5, en su rama, sin fusionar) entera contra este árbol, con `--dev-core` | 205 de 205, código 0, ninguna fuga. `shared: ogr_core 0.2.3.dev0 …`, `DEV CORE` antes y después |
+
+Catorce errores metidos a propósito en el runner, de uno en uno, y mueren los catorce. Cinco en la
+ruta (no poner la carpeta, que es el runner de la v0.2.2; ponerla siempre; ponerla la última; no
+quitarla; poner otra carpeta). Tres en `_on_path`. Seis en el consejo y en la pista (el texto de
+la v0.2.2, `--dev-core` en todos los rechazos, no decir cómo instalar, no nombrar la opción donde
+sirve, nombrarla para un núcleo anterior, y seguir corriendo después del rechazo).
+
+**La regla 8, sobre el commit `112d388`** (el árbol en `0.2.3.dev0`, con los dos cambios del
+runner).
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `55a1771` (su v0.1.475) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7541 casos: 7539 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.3.dev0 … @ 112d388`, `DEV CORE` antes y después |
+| OGR FEM2D entera contra ese árbol, con `--dev-core` | 205 de 205 sobre `7de973a` (su v0.0.5, entonces en su rama), a mano en Windows; 202 de 202 sobre `86c88e3` (su `main` entonces), en la CI en Linux |
+| CI de este repositorio sobre `112d388` (run 44772275432) | los seis trabajos en verde: 796 de 796 en Python 3.11, 3.12 y 3.13; licencia, 0 fallos; las dos fijaciones, iguales a la tabla |
+| Suite del núcleo con el número `0.2.3` ya puesto, `--jobs 4` | 796 de 796, código 0, ninguna fuga |
+
+Los dos saltados de OGR Slip2D son de la máquina, los de siempre: uno es de POSIX y el otro pide
+el banco de verificación, que no está aquí. Es la primera suite entera de OGR Slip2D que sale sin
+ningún fallo contra un núcleo sin etiquetar con cambios en el runner: con la v0.2.2 fallaban tres
+por construcción.
+
 ### Sin probar
 
+- **Los programas contra la versión con su número final**, a mano: todo lo de arriba es contra
+  `0.2.3.dev0`. El commit que pone `0.2.3` solo cambia el número y los documentos, y es la CI
+  quien lo mide, con la copia `.dev0` (abajo).
 - **El caso del commit del número, en GitHub.** La copia con `.dev0` solo se ha probado en
-  Windows; en la CI no se dará hasta que se prepare la etiqueta.
+  Windows; se da por primera vez en la CI de ese commit.
 - **OGR Slip2D a través del script.** Su trabajo no está encendido y su suite entera no se ha
   corrido por aquí; lo que el script hace con su comando (la variable de Qt, `--jobs 4`) está
   probado con un programa inventado.
@@ -218,10 +280,6 @@ tiene; cada uno hace fallar el test que le toca.
 - **Las carpetas ocultas en los programas**: los dos tienen el patrón que aquí se ha cambiado
   (§0). Si la lista de `test_project_sources_v023.py` debe vivir en el núcleo para los tres, sin
   decidir.
-- **El mensaje «WRONG SHARED TREE»** del runner, que todavía recomienda el árbol en editable. Lo
-  pidió OGR FEM2D.
-- **Que el runner ponga la carpeta de tests en la ruta de importación**, se arranque como se
-  arranque (§0). Toca `ogr_core/testing/runner.py`, como el anterior: pueden ir juntos.
-- De la v0.2.2 siguen: la regla única de «el núcleo no está copiado en el árbol del programa»,
-  `suite.toml` y el README de la suite, la protección de `main`, y `matplotlib` sin declarar en
-  `ogr_core/report`.
+- De la v0.2.2 siguen: la regla única de «el núcleo no está copiado en el árbol del programa», la
+  protección de `main`, y `matplotlib` sin declarar en `ogr_core/report`. `suite.toml` y el README
+  de la suite están hechos (`samuelsl27/OGR-Suite`, `077ecb0`).

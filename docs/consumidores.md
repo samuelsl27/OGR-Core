@@ -35,12 +35,10 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 
 | Cambio | Para quién | Estado |
 |---|---|---|
-| La CI de este repositorio corre la suite de cada programa contra el núcleo de la PR | Los dos | La de OGR FEM2D, hecha (hacia la v0.2.3). La de OGR Slip2D, cuando su suite esté en verde en Linux: le quedan cinco fallos suyos, aparcados |
-| El mensaje «WRONG SHARED TREE» del runner deja de recomendar el árbol en editable | Los dos (lo pidió OGR FEM2D) | Pendiente, hacia la v0.2.3 |
-| El runner garantiza que la carpeta de tests está en la ruta de importación, se arranque como se arranque | Los dos | Pendiente, hacia la v0.2.3, con el cambio anterior (los dos tocan el runner). Hoy un test puede importar a otro solo porque `python tests/_runner.py` pone esa carpeta la primera |
+| La CI de este repositorio corre la suite de cada programa contra el núcleo de la PR | Los dos | La de OGR FEM2D corre desde la v0.2.3. La de OGR Slip2D, cuando su suite esté en verde en Linux: le quedan cinco fallos suyos, aparcados |
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
-| Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí, en sus tests (hacia la v0.2.3). En los programas, pendiente: OGR FEM2D tiene un `.py` en `.github/scripts` que su test de cabeceras no ve; OGR Slip2D usa el mismo patrón y hoy no tiene ninguno |
+| Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí en la v0.2.3, en sus tests. OGR FEM2D lo arregló en su v0.0.5 (`a4965b7`). OGR Slip2D usa el mismo patrón y hoy no tiene ningún `.py` oculto: pendiente |
 
 Una fila sale de aquí cuando el cambio está en una versión etiquetada: desde entonces lo cuenta
 su changelog.
