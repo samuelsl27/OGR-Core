@@ -6,7 +6,7 @@ finite-element mesh and groundwater seepage solver.
 
 [Versión en español](README.es.md)
 
-> **Status: 0.2.1.** The code is the core of
+> **Latest release: 0.2.1.** The code is the core of
 > [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) as it stood in that program at its commit
 > `d48e2b3` (v0.1.471), with its finite-element mesh and seepage inside `ogr_core.fem`. Since 0.2.0
 > there is one core for every program of the suite, and it changes here and nowhere else.
@@ -32,9 +32,11 @@ pip install -e .
 python tests/_runner.py
 ```
 
-To work on a program against a local core, install this repository in editable mode first and the
-program after it. The program's test runner states which core tree, commit and version it is
-measuring, and refuses to run when the version is not the one it pins.
+Each program pins a tagged version of this core and installs it from its tag. The program's test
+runner states which core tree, commit and version it is measuring, and refuses to run when the
+version is not the one it pins. To test a program against a core that is being changed, put that
+tree on `PYTHONPATH` and ask the runner for it with `--dev-core`. Which version each program pins
+and how a change is requested: [`docs/consumidores.md`](docs/consumidores.md) (in Spanish).
 
 ## Rules
 

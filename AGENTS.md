@@ -18,8 +18,9 @@ Autor y titular del copyright: Samuel Sáez López (UPCT). Licencia AGPL-3.0-or-
 > `d48e2b3` (v0.1.471), con su malla y su filtración dentro de `ogr_core/fem/`, más el runner de la
 > suite (`docs/changelog/CHANGELOG_v0.2.0.md` dice de dónde sale cada parte). OGR Slip2D lo adoptó
 > en su v0.1.473 y OGR FEM2D en su v0.0.3; desde entonces **el código de `ogr_core` solo se cambia
-> en este repositorio**. Un Slip2D hasta la v0.1.471 lleva su propia copia y un paquete llamado
-> `ogr_fem2d`, y no comparte entorno de Python con otro programa de la suite.
+> en este repositorio**. Qué versión fija cada programa y qué cambios están en curso:
+> [`docs/consumidores.md`](docs/consumidores.md). Un Slip2D hasta la v0.1.471 lleva su propia copia
+> y un paquete llamado `ogr_fem2d`, y no comparte entorno de Python con otro programa de la suite.
 
 ---
 
@@ -49,10 +50,17 @@ para publicar. Tampoco lo es la de un programa lanzada con `--dev-core`, que es 
 programa contra un núcleo que está cambiando (versión `X.Y.Z.devN` posterior a la que fija): sin
 esa opción, el runner del programa se niega.
 
-Para desarrollar un programa contra este núcleo, se instalan los dos en editable: primero este
-repositorio y después el del programa. El runner del programa dice en su cabecera de qué árbol, de
-qué commit y de qué versión sale `ogr_core`, y se niega a ejecutar si esa versión no es la que el
-programa fija.
+Para probar un programa contra este núcleo mientras se cambia **no se instala nada**: desde la
+carpeta del programa y con su `.venv`,
+
+```bash
+PYTHONPATH=<este árbol, o el worktree del cambio> <la suite entera del programa> --dev-core
+```
+
+El runner del programa dice en su cabecera de qué árbol, de qué commit y de qué versión sale
+`ogr_core`: compruébalo ahí. Mientras dura, la corrida deja `OGR_DEV_CORE=1` en su entorno; así lo
+saben sus tests (`ogr_core.testing.runner.dev_core_run()`) y los runners que esos tests relancen,
+que aceptan el mismo núcleo sin que nadie les pase la opción.
 
 ## Capas
 
@@ -91,12 +99,42 @@ Son las de OGR Slip2D. Cada una existe porque su ausencia causó un problema rea
 ## Reglas propias del núcleo
 
 8. **Un cambio aquí se prueba también en los programas.** Antes de etiquetar una versión: la suite
-   completa de este repositorio y la de cada programa que vaya a fijarla, sin argumentos.
+   entera de este repositorio y la de **cada** programa de `docs/consumidores.md`, contra el núcleo
+   que se va a etiquetar y con `--dev-core`. *Entera* quiere decir **sin filtrar** (sin patrones,
+   sin `-k`, sin `--fast`); no quiere decir «en serie» ni «sin argumentos». Cada programa se corre
+   con el comando que su `AGENTS.md` da para publicar, que esa tabla repite: **léelo antes de
+   lanzarla**. OGR Slip2D va con `--jobs 4` y siempre con `QT_QPA_PLATFORM=offscreen`; sin esa
+   variable abre sus ventanas en la pantalla y la corrida no vale. Nunca dos corridas a la vez en
+   la máquina.
 9. **Versiones**: serie propia desde 0.1.0. El número va en dos sitios, `pyproject.toml` y
-   `ogr_core/__init__.py`, y un test falla si discrepan. Cada versión lleva su etiqueta `vX.Y.Z` y
-   su changelog; los programas fijan la etiqueta, nunca una rama.
+   `ogr_core/__init__.py`, y un test falla si discrepan. Es `X.Y.Z` en el commit que se etiqueta y
+   `X.Y.Z.dev0` entre dos etiquetas: después de etiquetar, `main` pasa a la versión de desarrollo
+   de la siguiente, para que un núcleo cambiado y sin etiquetar no responda por el etiquetado (el
+   runner de un programa compara números). Cada versión publicada lleva su etiqueta `vX.Y.Z` y su
+   changelog; los programas fijan la etiqueta, nunca una rama. Mientras la serie sea 0.x, un
+   cambio incompatible sube el segundo número y se avisa con al menos una versión de margen; uno
+   compatible, el tercero.
 10. **Un cambio que obliga a cambiar un programa** se anota en el changelog con lo que ese programa
     tiene que cambiar.
+
+## Un núcleo y varios programas
+
+Los programas se desarrollan a la vez. Para que el núcleo no vuelva a separarse:
+
+- **Un solo `main`**, siempre publicable, con etiquetas de versión. **Sin ramas largas por
+  programa**: dos ramas largas son dos copias otra vez.
+- **Cada cambio, en una rama corta con su PR.** La suite de este repositorio la corre la CI; las
+  de los programas, la regla 8, a mano mientras la CI no las corra.
+- **El código de `ogr_core` solo se cambia aquí.** La sesión de un programa que necesita algo del
+  núcleo lo pide; no lo edita ni lo copia. Y desde aquí no se edita un programa: lo que un programa
+  tiene que cambiar se le da escrito a su sesión (regla 10).
+- **Cada programa fija una etiqueta y la sube a propósito**, en un commit suyo. Su `.venv` tiene
+  el núcleo instalado desde esa etiqueta, como su CI, y no este árbol en editable: así dos
+  programas pueden fijar versiones distintas y este árbol puede seguir a `main`.
+- **Dos cambios del núcleo a la vez**, cada uno en su `git worktree`. El `PYTHONPATH` de la
+  corrida dice cuál se mide, y la cabecera del runner lo nombra.
+- **`docs/consumidores.md` al día**: qué fija cada programa, qué cambios están en curso y para
+  quién, y los pasos para pedir un cambio y para subir una fijación.
 
 ---
 
