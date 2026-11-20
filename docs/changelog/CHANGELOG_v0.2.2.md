@@ -125,7 +125,7 @@ la CI de este repositorio pueda correr su suite:
 
 ## 3. Pruebas
 
-Windows, Python 3.14.7, de una en una. El árbol decía `0.2.2.dev0`: es la primera versión que se
+Windows, Python 3.14.7 (la CI, en Linux), de una en una. El árbol decía `0.2.2.dev0`: es la primera versión que se
 prueba en los programas desde su propio árbol y no desde una copia con otro número.
 
 | Qué | Resultado |
@@ -134,6 +134,9 @@ prueba en los programas desde su propio árbol y no desde una copia con otro nú
 | Suite del núcleo, `--jobs 4` | 734 de 734, código 0, ninguna fuga |
 | OGR FEM2D `d2e6fca` contra este árbol, con `--dev-core` | 186 de 189, ninguna fuga; los tres de siempre, abajo |
 | OGR Slip2D `302a97c`, solo `test_shutdown_release_v1422`, con `--dev-core` y fuera de pantalla | 3 pasan, 1 saltado, 0 fallos: el test que relanza el runner pasa sin cambiar Slip2D. Corrida filtrada |
+| OGR Slip2D `302a97c` **entera** contra el commit `2eb3b18`, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7527 de 7532, 3 fallos, 2 saltados, ninguna fuga, 25 minutos; los tres esperados, abajo |
+| CI de este repositorio sobre `2eb3b18` (Linux, Python 3.11, 3.12 y 3.13; run 44720267244) | 734 de 734 en los tres, ninguna fuga |
+| Suite del núcleo con el número `0.2.2` ya puesto, `--jobs 4` | 734 de 734, código 0, ninguna fuga |
 
 **Dientes.** Veintidós errores metidos a propósito, de uno en uno, y mueren los veintidós. Nueve
 en el runner: no dejar la variable, no devolverla, quitarla siempre al devolverla, que la variable
@@ -155,11 +158,21 @@ sin tocar FEM2D, hace lo que esos tres tests tendrían que comprobar, con el run
 `shared_problems` sin problemas al decirle que la corrida es de desarrollo, la cabecera con la
 versión importada, y el Python sin `PYTHONPATH` rechazado con su razón. Los tres salen.
 
+**OGR Slip2D entera con `--dev-core`** (regla 8). La cabecera nombra el núcleo que mide
+(`shared: ogr_core 0.2.2.dev0 … @ 2eb3b18`) y la corrida dice `DEV CORE` antes y después de sus
+totales. Fallan tres, los que §2 le pide cambiar a Slip2D:
+`test_the_pin_is_the_core_that_is_imported` (`test_runner_wrapper_v1473`) y
+`test_the_imported_core_is_the_version_pyproject_pins` (`test_version_consistency_v176`) comparan
+la versión importada con la fijada, y `test_the_window_and_every_dialog_of_the_census` lee como
+inglés el `dev` de `ogr-core 0.2.2.dev0` en «Acerca de». Con la v0.2.1, probada como
+`0.2.1.dev0`, fallaban cuatro: el cuarto era el test que relanza el runner, que ahora pasa. Los
+dos saltados son de la máquina (uno es de POSIX y el otro pide el banco de verificación, que no
+está aquí).
+
 ### Sin probar
 
-- **La suite entera de OGR Slip2D contra esta versión** (regla 8). Se corre antes de etiquetar, y
-  su resultado se anota aquí.
-- **Linux y la CI de este repositorio**: se ven con la PR.
+- **Los programas contra la versión con su número final**: todo lo de arriba es contra
+  `0.2.2.dev0`. El commit que pone `0.2.2` solo cambia el número y los documentos.
 - **Los tres tests de cada programa, cambiados de verdad**: es de la versión de cada programa que
   fije esta. Lo de arriba es un ensayo en FEM2D y un razonamiento en Slip2D.
 

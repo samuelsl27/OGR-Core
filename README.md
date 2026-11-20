@@ -6,7 +6,7 @@ finite-element mesh and groundwater seepage solver.
 
 [Versión en español](README.es.md)
 
-> **Latest release: 0.2.1.** The code is the core of
+> **Latest release: 0.2.2.** The code is the core of
 > [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) as it stood in that program at its commit
 > `d48e2b3` (v0.1.471), with its finite-element mesh and seepage inside `ogr_core.fem`. Since 0.2.0
 > there is one core for every program of the suite, and it changes here and nowhere else.
