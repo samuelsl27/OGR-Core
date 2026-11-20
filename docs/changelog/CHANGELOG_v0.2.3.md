@@ -1,8 +1,5 @@
 # OGR Core v0.2.3
 
-> **En curso.** `main` dice `0.2.3.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
-
 **La forma de trabajar con un núcleo y varios programas, segunda parte**: la CI de este
 repositorio corre la suite entera de un programa contra el núcleo de cada commit, y compara lo que
 fija cada programa con lo que dice `docs/consumidores.md`. Y dos cambios pequeños del runner: pone
@@ -88,7 +85,7 @@ Es compatible: ningún programa tiene que cambiar nada.
   (`tests/test_project_setup_v001.py`) y tiene un `.py` en una carpeta oculta,
   `.github/scripts/wheel_check.py`, que lleva su cabecera sin que nada lo compruebe. OGR Slip2D
   busca igual (`tests/test_license_v143.py`) y hoy no tiene ningún `.py` oculto. Leído, no
-  tocado: es de sus sesiones.
+  tocado: es de sus sesiones. OGR FEM2D lo arregló el mismo día en su v0.0.5 (`a4965b7`).
 - **Un diente que faltaba, encontrado al meter los errores.** El script mira de dónde sale
   `ogr_core` antes de arrancar la suite. Quitar esa comprobación no hacía fallar ningún test: con
   el `PYTHONPATH` bien ordenado nunca tiene nada que decir. Tiene ahora su caso propio (un
@@ -244,10 +241,28 @@ quitarla; poner otra carpeta). Tres en `_on_path`. Seis en el consejo y en la pi
 la v0.2.2, `--dev-core` en todos los rechazos, no decir cómo instalar, no nombrar la opción donde
 sirve, nombrarla para un núcleo anterior, y seguir corriendo después del rechazo).
 
+**La regla 8, sobre el commit `112d388`** (el árbol en `0.2.3.dev0`, con los dos cambios del
+runner).
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `55a1771` (su v0.1.475) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7541 casos: 7539 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.3.dev0 … @ 112d388`, `DEV CORE` antes y después |
+| OGR FEM2D entera contra ese árbol, con `--dev-core` | 205 de 205 sobre `7de973a` (su v0.0.5, entonces en su rama), a mano en Windows; 202 de 202 sobre `86c88e3` (su `main` entonces), en la CI en Linux |
+| CI de este repositorio sobre `112d388` (run 44772275432) | los seis trabajos en verde: 796 de 796 en Python 3.11, 3.12 y 3.13; licencia, 0 fallos; las dos fijaciones, iguales a la tabla |
+| Suite del núcleo con el número `0.2.3` ya puesto, `--jobs 4` | 796 de 796, código 0, ninguna fuga |
+
+Los dos saltados de OGR Slip2D son de la máquina, los de siempre: uno es de POSIX y el otro pide
+el banco de verificación, que no está aquí. Es la primera suite entera de OGR Slip2D que sale sin
+ningún fallo contra un núcleo sin etiquetar con cambios en el runner: con la v0.2.2 fallaban tres
+por construcción.
+
 ### Sin probar
 
+- **Los programas contra la versión con su número final**, a mano: todo lo de arriba es contra
+  `0.2.3.dev0`. El commit que pone `0.2.3` solo cambia el número y los documentos, y es la CI
+  quien lo mide, con la copia `.dev0` (abajo).
 - **El caso del commit del número, en GitHub.** La copia con `.dev0` solo se ha probado en
-  Windows; en la CI no se dará hasta que se prepare la etiqueta.
+  Windows; se da por primera vez en la CI de ese commit.
 - **OGR Slip2D a través del script.** Su trabajo no está encendido y su suite entera no se ha
   corrido por aquí; lo que el script hace con su comando (la variable de Qt, `--jobs 4`) está
   probado con un programa inventado.
