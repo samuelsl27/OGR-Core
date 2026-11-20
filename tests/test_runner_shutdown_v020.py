@@ -78,8 +78,16 @@ def _run(code: str) -> subprocess.CompletedProcess:
 
 
 def _runner_with_crash(*args: str) -> subprocess.CompletedProcess:
+    # v0.2.3 -- the folder of the script goes first on the path, as the
+    # interpreter puts it for ``python tests/_runner.py``; ``runpy`` does
+    # not. Without it this was not the run it stands for: a test file that
+    # imports another one loaded there and did not load here. Found when
+    # ``test_license_v10``, the file this run uses, began to import
+    # ``test_project_sources_v023``: one test of this file failed on a
+    # ``ModuleNotFoundError`` that no real run has.
     return _run(_CRASH_AT_SHUTDOWN
                 + "import runpy, sys; "
+                + f"sys.path.insert(0, {str(_TESTS)!r}); "
                 + f"sys.argv = [{str(_RUNNER)!r}, *{list(args)!r}]; "
                 + f"runpy.run_path({str(_RUNNER)!r}, run_name='__main__')")
 

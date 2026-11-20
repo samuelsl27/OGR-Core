@@ -40,11 +40,36 @@ todavía: `git diff v0.2.2 -- ogr_core` solo toca el número de versión.
   falla si la excusa sigue ahí.
 - **La comparación de fijaciones no depende de eso.** Leer el `pyproject.toml` de Slip2D no
   necesita que su suite esté en verde en ningún sitio: se compara ya.
-- **Anomalía, sin corregir: el test de las cabeceras de licencia no ve `.github/`.**
-  `tests/test_license_v10.py` busca con `glob("**/*.py")`, que no entra en carpetas que empiezan
+- **Anomalía: el test de las cabeceras de licencia no veía `.github/`.**
+  `tests/test_license_v10.py` buscaba con `glob("**/*.py")`, que no entra en carpetas que empiezan
   por punto. El script nuevo (`.github/scripts/program_suite.py`) lleva su cabecera SPDX, pero
-  ningún test fallaría si no la llevara. Medido: 169 archivos con el patrón del test, 170 contando
-  las carpetas ocultas. Hasta ahora no había ningún `.py` ahí.
+  ningún test habría fallado sin ella. Medido en ese commit: 169 archivos con el patrón del test,
+  170 contando las carpetas ocultas. Hasta entonces no había ningún `.py` ahí. Se reportó antes de
+  tocarlo y se arregla en un cambio aparte (§1, «Las carpetas ocultas»).
+- **No era solo ese test.** Al mirarlo salieron otros dos con el mismo punto ciego:
+  `test_python_floor_v10.py`, que busca con el mismo patrón la sintaxis que Python 3.11 no acepta,
+  y `test_no_vendor_names_v10.py`, que solo recorría `ogr_core` y `tests`. Ninguno de los tres
+  veía el script.
+- **Pedirle a `glob` lo oculto no es el arreglo, y preguntarle a git tampoco.** Con
+  `include_hidden` entra en todo: un `.venv` dentro del árbol, como el que tienen los programas,
+  son miles de archivos ajenos sin cabecera. Y `git ls-files` no ve un archivo hasta que se añade,
+  que es justo el caso que el test de licencia quiere cazar. Queda una lista declarada, con un
+  test que impide que una carpeta oculta con código se quede sin decidir.
+- **Que un test pueda importar a otro depende de cómo se arranque el runner, y nada lo
+  garantiza.** Con `python tests/_runner.py` el intérprete pone `tests/` la primera en la ruta de
+  importación; arrancado de otra manera, no. Salió al hacer el cambio de las carpetas ocultas: la
+  suite entera dio 783 de 784, porque `test_runner_shutdown_v020.py` relanza el runner con `runpy`
+  sobre `test_license_v10`, que ahora importa `test_project_sources_v023` y allí no lo encontraba
+  (`ModuleNotFoundError`). Es determinista y más viejo que ese cambio: el test de la CI de los
+  programas (arriba) ya importaba `test_consumers_v022` de la misma manera, y no falló porque
+  nadie relanza ese archivo. Se reportó antes de tocarlo. Arreglado donde estaba la diferencia, en
+  el lanzamiento de ese test, que ahora pone la carpeta como la pone el intérprete. Que lo
+  garantice el runner compartido queda pendiente (§4): lo necesitan los tres repositorios.
+- **Los programas tienen el mismo patrón.** OGR FEM2D busca igual
+  (`tests/test_project_setup_v001.py`) y tiene un `.py` en una carpeta oculta,
+  `.github/scripts/wheel_check.py`, que lleva su cabecera sin que nada lo compruebe. OGR Slip2D
+  busca igual (`tests/test_license_v143.py`) y hoy no tiene ningún `.py` oculto. Leído, no
+  tocado: es de sus sesiones.
 - **Un diente que faltaba, encontrado al meter los errores.** El script mira de dónde sale
   `ogr_core` antes de arrancar la suite. Quitar esa comprobación no hacía fallar ningún test: con
   el `PYTHONPATH` bien ordenado nunca tiene nada que decir. Tiene ahora su caso propio (un
@@ -91,6 +116,22 @@ fijaciones cubre a todos; cada forma de correr es lo que `runner.shared_problems
 verdad, preguntado sobre núcleos inventados; la copia cambia la cadena de versión y nada más; y
 una corrida con un programa inventado hace lo que dice.
 
+**Las carpetas ocultas** (cambio aparte, solo tests)
+
+- `tests/test_project_sources_v023.py`, nuevo (11 casos). `python_files()` da todos los `.py`
+  del proyecto: los de siempre, más los de las carpetas ocultas que llevan código, que se nombran
+  por su ruta (`HIDDEN_WITH_CODE`, hoy `.github`). `undecided()` da las carpetas ocultas con algún
+  `.py`, a cualquier profundidad, que ni se leen ni están en `HIDDEN_NOT_OURS` con su porqué
+  (`.git`, `.venv`); un test exige que no haya ninguna.
+- `test_license_v10.py`, `test_python_floor_v10.py` y `test_no_vendor_names_v10.py` toman sus
+  archivos de `python_files()`. Comparado archivo a archivo: cada uno lee lo mismo que antes y uno
+  más, el script de la CI. El de marcas deja de nombrar dos carpetas: contenían todos los demás
+  `.py` del repositorio, así que no entra nada más.
+- Solo usa la biblioteca estándar: el trabajo de licencia de la CI importa `test_license_v10` en
+  un Python sin nada instalado.
+- `tests/test_runner_shutdown_v020.py`: el proceso que relanza pone `tests/` la primera en la
+  ruta, como una corrida real (§0). Lo que el test protege no cambia.
+
 **Documentos**
 
 - `docs/consumidores.md`: las dos filas, en `v0.2.2`. Qué lee la CI de esta tabla y qué pasa
@@ -101,6 +142,10 @@ una corrida con un programa inventado hace lo que dice.
 ## 2. Lo que tiene que cambiar cada programa (regla 10)
 
 Nada.
+
+Una recomendación, que no obliga: el test de cabeceras de licencia de cada programa busca con el
+mismo patrón que el de aquí y tampoco entra en las carpetas ocultas (§0). OGR FEM2D tiene ya un
+`.py` en una.
 
 Lo que cambia para quien trabaja en un programa: **cuando sube la versión que fija, el trabajo
 `pins` de este repositorio se pone en rojo** hasta que aquí se corrige su fila. Es el aviso, no
@@ -129,11 +174,33 @@ por detrás de lo que ya había en el `PYTHONPATH`, no mirar de dónde sale, per
 salida, dejar la copia, no avisar de ella). Seis en el flujo y en la lista de excusas. Uno salió
 vivo la primera vez, y es el hallazgo de §0: no mirar de dónde sale el núcleo.
 
+**Los trabajos nuevos en GitHub** (CI de la PR 6 sobre `78bdc3b`, run 44756012590): los seis en
+verde. El Rust del runner basta para construir OGR FEM2D con `pip`, sin añadir ninguna acción.
+OGR FEM2D `86c88e3`, 202 de 202 en Linux con Python 3.11, con
+`shared: ogr_core 0.2.3.dev0 …/core/ogr_core` y `DEV CORE` antes y después; las dos fijaciones,
+iguales a la tabla; la suite del núcleo, 773 de 773 en 3.11, 3.12 y 3.13.
+
+**Las carpetas ocultas** (cambio aparte).
+
+| Qué | Resultado |
+|---|---|
+| Suite del núcleo, `--jobs 4`, antes de corregir el lanzamiento de `test_runner_shutdown_v020` | 783 de 784: el fallo de §0 |
+| Suite del núcleo, `--jobs 4`, corregido | 784 de 784, código 0, ninguna fuga (773 y 11 nuevos) |
+| Qué lee cada uno de los tres tests, antes y después, archivo a archivo | lo mismo y uno más: `.github/scripts/program_suite.py` |
+| Las comprobaciones del trabajo de licencia de la CI, en un Python sin nada (`python -I`) | 0 fallos |
+
+Dieciocho errores metidos a propósito, de uno en uno, y mueren los dieciocho. Tres devuelven cada
+test a su búsqueda de antes. Dos en la lista (ninguna carpeta oculta con código; `.github`
+excusada en vez de leída). Tres en la lectura (entrar en toda carpeta oculta, tomar una carpeta
+por su nombre en cualquier sitio, leer `__pycache__`). Cinco en las carpetas sin decidir. Uno en
+la comprobación de cabeceras. Y cuatro sobre el script de la CI, que son el caso real: sin su
+cabecera, sin su línea de copyright, con una marca comercial y con sintaxis que Python 3.11 no
+tiene; cada uno hace fallar el test que le toca.
+
 ### Sin probar
 
-- **Los trabajos nuevos en GitHub.** Todo lo de arriba es el script, en Windows. Que el Rust del
-  runner baste para construir OGR FEM2D con `pip`, que la bajada parcial de un repositorio ajeno
-  funcione y que la suite de FEM2D salga en verde ahí lo dirá la primera corrida de la CI.
+- **El caso del commit del número, en GitHub.** La copia con `.dev0` solo se ha probado en
+  Windows; en la CI no se dará hasta que se prepare la etiqueta.
 - **OGR Slip2D a través del script.** Su trabajo no está encendido y su suite entera no se ha
   corrido por aquí; lo que el script hace con su comando (la variable de Qt, `--jobs 4`) está
   probado con un programa inventado.
@@ -148,9 +215,13 @@ vivo la primera vez, y es el hallazgo de §0: no mirar de dónde sale el núcleo
 - **El trabajo de OGR Slip2D**, cuando su suite esté en verde en Linux.
 - **Nada avisa aquí cuando un programa sube su fijación** hasta el siguiente commit o PR de este
   repositorio: la CI no corre sola.
-- **El test de las cabeceras de licencia y las carpetas ocultas** (§0).
+- **Las carpetas ocultas en los programas**: los dos tienen el patrón que aquí se ha cambiado
+  (§0). Si la lista de `test_project_sources_v023.py` debe vivir en el núcleo para los tres, sin
+  decidir.
 - **El mensaje «WRONG SHARED TREE»** del runner, que todavía recomienda el árbol en editable. Lo
   pidió OGR FEM2D.
+- **Que el runner ponga la carpeta de tests en la ruta de importación**, se arranque como se
+  arranque (§0). Toca `ogr_core/testing/runner.py`, como el anterior: pueden ir juntos.
 - De la v0.2.2 siguen: la regla única de «el núcleo no está copiado en el árbol del programa»,
   `suite.toml` y el README de la suite, la protección de `main`, y `matplotlib` sin declarar en
   `ogr_core/report`.

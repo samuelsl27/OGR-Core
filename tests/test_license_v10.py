@@ -16,30 +16,40 @@ Licence metadata is the kind of thing that drifts silently: a new file
 without a header, or a stale identifier left behind in packaging
 metadata, and the project ships inconsistent terms. These tests make that
 a build failure.
+
+v0.2.3 — the files come from ``test_project_sources_v023.python_files``.
+Until then this file looked for them with ``glob("**/*.py")``, which does
+not enter a folder whose name begins with a dot: the script of the CI,
+``.github/scripts/program_suite.py``, was the first Python file in one, and
+nothing here would have failed had it come without its header.
 """
 from __future__ import annotations
 
-import glob
 import re
 from pathlib import Path
+
+from test_project_sources_v023 import python_files
 
 _ROOT = Path(__file__).resolve().parent.parent
 _SPDX = "SPDX-License-Identifier: AGPL-3.0-or-later"
 
 
 def _sources():
-    for f in glob.glob(str(_ROOT / "**" / "*.py"), recursive=True):
-        if "__pycache__" in f:
-            continue
-        yield Path(f)
+    yield from python_files(_ROOT)
+
+
+def _without_header(paths, root: Path = _ROOT) -> list:
+    """The files of ``paths`` that do not declare the licence, as paths
+    from ``root``."""
+    return [p.relative_to(root).as_posix() for p in paths
+            if _SPDX not in p.read_text(encoding="utf-8")]
 
 
 class TestSpdxHeaders:
     def test_every_source_file_declares_the_licence(self):
         """A file without an SPDX header is invisible to licence tooling
         and ambiguous to a reader."""
-        missing = [str(p.relative_to(_ROOT)) for p in _sources()
-                   if _SPDX not in p.read_text(encoding="utf-8")]
+        missing = _without_header(_sources())
         assert not missing, (
             f"{len(missing)} files without an SPDX header: {missing[:10]}")
 

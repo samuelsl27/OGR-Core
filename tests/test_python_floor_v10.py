@@ -40,12 +40,13 @@ Two things this file had to get right, both of which cost a wrong turn:
 """
 from __future__ import annotations
 
-import glob
 import io
 import re
 import sys
 import tokenize
 from pathlib import Path
+
+from test_project_sources_v023 import python_files
 
 _ROOT = Path(__file__).resolve().parent.parent
 _BACKSLASH = chr(92)
@@ -85,10 +86,10 @@ def _floor() -> tuple[int, int]:
 
 
 def _sources():
-    for f in glob.glob(str(_ROOT / "**" / "*.py"), recursive=True):
-        if "__pycache__" in f or f"{Path(f).parts[0]}" == ".git":
-            continue
-        yield Path(f)
+    # v0.2.3 -- from the list every such test shares: ``glob("**/*.py")``
+    # did not enter a folder whose name begins with a dot, so the script of
+    # the CI in ``.github/scripts`` was never scanned.
+    yield from python_files(_ROOT)
 
 
 def _fstring_defects(path: Path) -> list[str]:
