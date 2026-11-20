@@ -47,11 +47,20 @@ v0.1.473 y OGR FEM2D desde su v0.0.3.
   del 100 % y una corrida con `--jobs` decía que los trozos habían corrido un test que la fuente no
   declaraba, en vez de decir que el test fallaba.
 - **Un programa no puede salir del todo en verde con `--dev-core` si tiene tests sobre lo que
-  fija.** Primer uso real de la opción, con OGR FEM2D: sin ella el runner se niega y dice cómo
-  seguir; con ella corre y lo avisa antes y después de los totales. Pero tres tests de FEM2D
-  comprueban que el núcleo es el fijado, y en una corrida así no lo es (§3). Queda para decidir
-  con la forma de trabajar: o esos tests saben que la corrida es de desarrollo, o se aceptan como
-  rojos conocidos, que es lo que no se quiere.
+  fija.** Primer uso real de la opción, con los dos programas: sin ella el runner se niega y dice
+  cómo seguir; con ella corre y lo avisa antes y después de los totales. Pero tres tests de FEM2D
+  y cuatro de Slip2D fallan por construcción en una corrida así (§3), y no todos por lo mismo:
+  unos comparan la versión importada con la fijada; otros relanzan el runner en otro proceso, y
+  ese no recibe la opción; y uno lee `dev`, de `0.2.1.dev0`, como una palabra en inglés en
+  pantalla. Queda para decidir con la forma de trabajar: o esos tests saben que la corrida es de
+  desarrollo, o se aceptan como rojos conocidos, que es lo que no se quiere.
+- **La regla 8 no dice cómo se corre la suite de cada programa, y «sin argumentos» se lee como
+  «en serie».** Quiere decir sin filtrar. La primera corrida de Slip2D para esta versión se lanzó
+  en serie y sin `QT_QPA_PLATFORM=offscreen`: abrió las ventanas del programa en pantalla y a los
+  cuatro minutos nombraba una fuga que era de cómo se lanzó
+  (`env:QT_QPA_PLATFORM: (absent) → offscreen`). Se paró y no cuenta; la que cuenta es la segunda
+  (§3). El comando de cada programa está en su `AGENTS.md`: en Slip2D, `--jobs 4`, y en serie
+  cada 100 commits.
 - **Preparar una versión del núcleo en su árbol habitual habría dejado sin suite a los
   programas.** Sus entornos lo tienen instalado en editable: en cuanto ese árbol dice 0.2.1, sus
   runners se niegan (fijan 0.2.0). Esta versión se ha preparado en un `git worktree` aparte, con el
@@ -96,6 +105,7 @@ Windows, Python 3.14.7, de una en una.
 | Suite del núcleo, con el Python del `.venv` de FEM2D (sin Qt ni matplotlib) | 693 de 693 |
 | El test de extremo a extremo del locale, en esta máquina | Pasa: aquí el intérprete arranca en `LC_COLLATE=C;LC_CTYPE=English_United States.1252;…` y adopta `English_United States.1252`; con la aplicación creada no es fuga, sin ella y con otro locale sí |
 | OGR FEM2D `d2e6fca` contra esta versión, como `0.2.1.dev0` y con `--dev-core` | 186 de 189, ninguna fuga; los tres que fallan, abajo |
+| OGR Slip2D `dbc316c` contra esta versión, igual, entera y en serie, fuera de pantalla (PySide6 6.11.1) | 7525 de 7531, 2 saltados, ninguna fuga; los cuatro que fallan, abajo |
 
 **Dientes.** Diez errores metidos a propósito, sobre una copia: nueve en `leaks.py` (no decir
 nunca que la aplicación se creó aquí, decirlo en todo archivo posterior, no mirar si se creó, dejar
@@ -114,15 +124,35 @@ fija.
 - `test_a_python_without_the_core_is_refused` arranca un Python «sin núcleo», que en esta corrida
   hereda el `PYTHONPATH` con el que se le dio el de desarrollo: es de cómo se montó la prueba.
 
+**OGR Slip2D con `--dev-core`.** Los 7525 que pasan y los 2 saltados son los de su última serie
+en verde (7529 de 7531, en `07524e8`) menos estos cuatro, todos por correr con `0.2.1.dev0`:
+
+- `test_the_imported_core_is_the_version_pyproject_pins` (`test_version_consistency_v176`) y
+  `test_the_pin_is_the_core_that_is_imported` (`test_runner_wrapper_v1473`) comparan la versión
+  importada con la fijada: `('0.2.1.dev0', '0.2.0')`.
+- `test_a_file_that_left_a_dialog_ends_with_zero` (`test_shutdown_release_v1422`) relanza el
+  runner en otro proceso, sin `--dev-core`, y ese runner se niega: `WRONG SHARED TREE`.
+- `test_the_window_and_every_dialog_of_the_census` (`test_labels_spanish_v1321`): el diálogo
+  «Acerca de» dice `ogr-core 0.2.1.dev0`, y el test cuenta `dev` como texto en inglés. Con
+  `0.2.0` ese texto pasa.
+
+La corrida no se apuntó como serie en verde de Slip2D, y no es evidencia para publicarlo: lo dice
+ella misma (`DEV CORE … NOT evidence for a release`).
+
 ### Sin probar
 
 - **La entrada de locale con Qt en Linux** (§0). La prueban la CI de este repositorio, que corre
   en Linux el test de extremo a extremo sin Qt, y la de Slip2D cuando fije esta versión.
-- **La suite de OGR Slip2D contra esta versión** (regla 8), antes de etiquetar.
+- **Los programas contra la versión etiquetada.** Lo de arriba es contra `0.2.1.dev0`, que es el
+  mismo código con otro número. La suite de cada programa con la `v0.2.1` fijada es de la versión
+  del programa que la fije.
 
 ## 4. Queda abierto
 
-- Qué hace un programa con sus tests de «el núcleo es el fijado» en una corrida con `--dev-core`.
+- Qué hace un programa con sus tests de «el núcleo es el fijado» en una corrida con `--dev-core`,
+  y cómo llega la opción a un runner que un test relanza.
+- La regla 8, dicha de forma que no se confunda «sin filtrar» con «en serie», y con el comando de
+  cada programa.
 - La versión de desarrollo en `main` entre dos etiquetas (`0.3.0.dev0`), y qué changelog pide
   `test_version_consistency_v10` a una `.devN`.
 - `ogr_core/report` usa matplotlib, que el núcleo no declara (viene de la v0.2.0).
