@@ -55,12 +55,12 @@ boundary from both sides, so it cannot drift in either direction.
 """
 from __future__ import annotations
 
-import glob
 import re
 from pathlib import Path
 
+from test_project_sources_v023 import python_files
+
 _ROOT = Path(__file__).resolve().parent.parent
-_TREES = ("ogr_core", "tests")
 
 # Split on purpose — see the docstring. The halves are meaningless apart, so
 # this file does not match its own pattern and needs no exemption.
@@ -89,14 +89,15 @@ _EXCEPTIONS: frozenset = frozenset()
 
 
 def _sources():
-    for tree in _TREES:
-        for f in glob.glob(str(_ROOT / tree / "**" / "*.py"), recursive=True):
-            if "__pycache__" in f:
-                continue
-            p = Path(f)
-            if str(p.relative_to(_ROOT)).replace("\\", "/") in _EXCEPTIONS:
-                continue
-            yield p
+    # v0.2.3 -- every Python file of the project, from the list the tests
+    # of this kind share. Until then this named two folders, ``ogr_core``
+    # and ``tests``, and the script of the CI in ``.github/scripts`` was in
+    # neither. On that commit the two folders held every other ``.py`` of
+    # the repository, so nothing else comes in with the change.
+    for p in python_files(_ROOT):
+        if p.relative_to(_ROOT).as_posix() in _EXCEPTIONS:
+            continue
+        yield p
 
 
 class TestNoVendorNames:
