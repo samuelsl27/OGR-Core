@@ -20,10 +20,9 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
   programa sube su fijación y esta tabla no se ha corregido**. Ese rojo se arregla aquí, en la
   fila.
 - **La CI de este repositorio lee esta tabla** (`.github/scripts/program_suite.py`): de aquí salen
-  el repositorio, la fijación y el comando de cada programa. Corre la suite entera de OGR FEM2D
-  contra el núcleo de cada commit. La de OGR Slip2D, todavía no (ver «En curso»); el porqué está
-  también en `tests/test_ci_programs_v023.py`, que falla si un programa de la tabla no tiene su
-  trabajo ni una razón escrita.
+  el repositorio, la fijación y el comando de cada programa. Corre la suite entera de cada uno
+  contra el núcleo de cada commit, en Linux y con Python 3.11. `tests/test_ci_programs_v023.py`
+  falla si un programa de la tabla no tiene su trabajo ni una razón escrita para no tenerlo.
 - **«Suite entera»** es el comando que el `AGENTS.md` del programa da para publicar, con el Python
   de su `.venv` y desde su carpeta. Es el de la regla 8: entera quiere decir sin filtrar (sin
   patrones, sin `-k`, sin `--fast`); `--jobs` no filtra. Contra un núcleo que se está cambiando se
@@ -35,7 +34,7 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 
 | Cambio | Para quién | Estado |
 |---|---|---|
-| La CI de este repositorio corre la suite de cada programa contra el núcleo de la PR | Los dos | La de OGR FEM2D corre desde la v0.2.3. La de OGR Slip2D, cuando su suite esté en verde en Linux: le quedan cinco fallos suyos, aparcados |
+| La CI de este repositorio corre la suite de cada programa contra el núcleo de la PR | Los dos | La de OGR FEM2D corre desde la v0.2.3. La de OGR Slip2D, camino de la v0.2.4: su suite sale en verde en Linux desde su v0.1.476 |
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
 | Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí en la v0.2.3, en sus tests. OGR FEM2D lo arregló en su v0.0.5 (`a4965b7`). OGR Slip2D usa el mismo patrón y hoy no tiene ningún `.py` oculto: pendiente |
@@ -63,7 +62,7 @@ algo del núcleo **no lo edita ni lo copia**: lo pide.
 
    La corrida dice `DEV CORE` antes y después de sus totales y no es evidencia para publicar el
    programa. Sus tests y los runners que relancen lo saben por `OGR_DEV_CORE=1`. La CI hace esa
-   misma corrida en Linux, en cada commit, para los programas que tienen su trabajo.
+   misma corrida en Linux, en cada commit, para cada programa de la tabla.
 4. Se etiqueta la versión, con su changelog, que dice **qué tiene que cambiar cada programa**.
 
 ## Cómo sube un programa la versión que fija

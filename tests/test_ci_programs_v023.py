@@ -66,13 +66,11 @@ _SCRIPT = _ROOT / ".github" / "scripts" / "program_suite.py"
 
 #: Programs of the table whose suite the CI does not run yet, and why. An
 #: entry leaves when its cause does; with a job in the workflow it fails.
-NOT_YET = {
-    "OGR Slip2D": (
-        "its suite is not green on Linux: five tests parked in its own CI "
-        "(test_cli_reported_caption_v1430 x4, and "
-        "test_the_compact_profile_stays_small on 3.11 and 3.12). A job that "
-        "is red for a known reason teaches everybody to ignore it."),
-}
+#: Empty since v0.2.4. OGR Slip2D was here through v0.2.3, for five tests
+#: parked in its own CI (a job that is red for a known reason teaches
+#: everybody to ignore it); its v0.1.476 left its suite green on Linux, and
+#: it has its job.
+NOT_YET = {}
 
 
 def _script():
@@ -182,7 +180,8 @@ class TestTheWorkflowOfThisRepository:
     def test_the_scan_sees_the_jobs(self):
         """A scan that finds nothing would pass everything below."""
         found = jobs(_WORKFLOW.read_text(encoding="utf-8"))
-        assert {"test", "licence", "pins"} <= set(found), sorted(found)
+        assert {"test", "licence", "pins", "fem2d", "slip2d"} <= set(found), \
+            sorted(found)
         assert all(found.values()), sorted(found)
 
     def test_every_program_has_its_job_or_a_reason(self):
