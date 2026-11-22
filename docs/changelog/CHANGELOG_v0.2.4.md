@@ -43,8 +43,33 @@
   `C:\tmp`, 774 de 796, con los 22 fallos de ese archivo y todos `FileNotFoundError`; con la
   carpeta creada a mano, 796 de 796. Donde la carpeta existía, el test escribía además en una
   carpeta que usan otros programas, y que OGR Slip2D usa todavía.
+- **«Nunca dos corridas a la vez» era una regla del portátil anterior** (4 núcleos, 16 GB), donde
+  las suites competían por los núcleos y la máquina paginaba. En el PC nuevo (16 núcleos físicos,
+  32 lógicos, 64 GB) la propietaria la cambió el 2026-11-22, porque en él se llevan varios
+  desarrollos a la vez. Lo probó ese día: con la suite de OGR Slip2D en marcha (`--jobs 4`), las
+  de OGR-Core y OGR FEM2D, lanzadas a la vez, dieron 796 de 796 en 1,3 min y 205 de 205 en
+  0,9 min, sin fugas. Antes de escribir la regla nueva se buscó en este repositorio qué rompería.
+  No hay puertos ni red en los tests, ni un test que compare un tiempo con un umbral (el único
+  reloj, en `test_runner_jobs_v020.py`, ordena marcas de una misma corrida). Lo que sí hay
+  confirma que dos corridas del **mismo** programa no pueden coincidir. El runner guarda sus
+  registros por etiqueta en la carpeta temporal (`%TEMP%\ogr-core-test-durations.json`,
+  `-test-times.json` y `-serial-run.json`). La escritura es atómica, pero la última corrida en
+  terminar pisa los tiempos de la otra. Y `test_runner_jobs_v020.py` comprueba que esos tres
+  archivos reales no cambien durante sus corridas de prueba (`machine_untouched`): si otra
+  corrida de OGR-Core, por ejemplo desde un segundo worktree, termina en ese intervalo, el test
+  falla sin que el código tenga la culpa. Por eso la viñeta de `AGENTS.md` sobre los dos cambios
+  del núcleo en dos worktrees dice ahora que sus suites van por turnos. Los subprocesos de
+  algunos tests tienen un tiempo máximo (de 60 a 600 s). Con la máquina muy cargada podrían
+  agotarlo, pero la prueba de ese día no se acercó, y no se tocan.
 
 ## 1. Qué cambia
+
+- `AGENTS.md`, regla 8: las suites de programas distintos pueden correr a la vez; dos del mismo
+  programa no (tampoco desde dos worktrees), y se avisa antes cuando esta sesión corre la de un
+  programa contra un núcleo sin etiquetar; una corrida que se cronometra va sola. En «Un núcleo y
+  varios programas», los dos cambios del núcleo en dos worktrees corren sus suites por turnos.
+  Solo documentación. La regla de OGR Slip2D («Coste de los tests», en su `AGENTS.md`) la cambia
+  su sesión.
 
 - `AGENTS.md`, «Un núcleo y varios programas»: una rama se borra cuando su PR se fusiona; una sin
   fusionar no se borra sin el OK del propietario, y si lleva algo que `main` no tiene se archiva
@@ -97,6 +122,8 @@ delete head branches»), que es de la propietaria.
 | Suite entera con `--jobs 4` y con el test de antes, con `C:\tmp` creada: fecha de `C:\tmp\ogr_test_model.dxf` y `C:\tmp\ogr_not_a_dxf.txt` | 796 de 796, sin fugas; los dos archivos pasan de las 14:44 a las 16:32, la hora de la corrida |
 | Suite entera con `--jobs 4` y con el test nuevo: las mismas dos fechas | 796 de 796, sin fugas; las dos siguen en las 16:32 |
 | Los 29 casos de `test_dxf_reader_v144.py`, en esa corrida | 29 de 29 |
+| La regla de las corridas a la vez: suites de OGR-Core y de OGR FEM2D lanzadas a la vez y con la de OGR Slip2D en marcha (`--jobs 4`), 2026-11-22, por la propietaria | 796 de 796 en 1,3 min y 205 de 205 en 0,9 min, sin fugas |
+| Suite del núcleo entera, en serie, con el `AGENTS.md` y el changelog nuevos (2026-11-22) | 796 de 796, sin fugas, código 0 |
 | Rutas `/tmp` en el archivo (grep) | solo en el comentario que cuenta por qué ya no la usa |
 
 **Sin medir desde aquí**: la suite de OGR Slip2D en Linux con `--jobs 4` y con `--dev-core`. Su
