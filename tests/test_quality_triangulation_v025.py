@@ -129,7 +129,52 @@ def _inside(pt, ring):
 
 RECT = [(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]
 SQUARE = [(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)]
-OPENING = _polygon(40, 1.0)
+#: The 40-sided opening (radius 1), written bit for bit: cos and sin come
+#: from each platform's maths library, which need not round them the same
+#: way, and the fingerprint (point 10) must see the mesher, not that
+#: library. These are the values of Windows (MSVC) on 2026-11-23.
+OPENING = [(float.fromhex(x), float.fromhex(y)) for x, y in (
+    ("0x1.0000000000000p+0", "0x0.0p+0"),
+    ("0x1.f9b24942fe45cp-1", "0x1.4060b67a85375p-3"),
+    ("0x1.e6f0e134454ffp-1", "0x1.3c6ef372fe94fp-2"),
+    ("0x1.c83201d3d2c6dp-1", "0x1.d0e2e2b44de00p-2"),
+    ("0x1.9e3779b97f4a8p-1", "0x1.2cf2304755a5ep-1"),
+    ("0x1.6a09e667f3bcdp-1", "0x1.6a09e667f3bcdp-1"),
+    ("0x1.2cf2304755a5ep-1", "0x1.9e3779b97f4a8p-1"),
+    ("0x1.d0e2e2b44de01p-2", "0x1.c83201d3d2c6cp-1"),
+    ("0x1.3c6ef372fe950p-2", "0x1.e6f0e134454ffp-1"),
+    ("0x1.4060b67a85377p-3", "0x1.f9b24942fe45cp-1"),
+    ("0x1.1a62633145c07p-54", "0x1.0000000000000p+0"),
+    ("-0x1.4060b67a8536bp-3", "0x1.f9b24942fe45cp-1"),
+    ("-0x1.3c6ef372fe94ep-2", "0x1.e6f0e13445500p-1"),
+    ("-0x1.d0e2e2b44de00p-2", "0x1.c83201d3d2c6dp-1"),
+    ("-0x1.2cf2304755a5dp-1", "0x1.9e3779b97f4a8p-1"),
+    ("-0x1.6a09e667f3bccp-1", "0x1.6a09e667f3bcdp-1"),
+    ("-0x1.9e3779b97f4a7p-1", "0x1.2cf2304755a5fp-1"),
+    ("-0x1.c83201d3d2c6cp-1", "0x1.d0e2e2b44de02p-2"),
+    ("-0x1.e6f0e134454ffp-1", "0x1.3c6ef372fe951p-2"),
+    ("-0x1.f9b24942fe45bp-1", "0x1.4060b67a85379p-3"),
+    ("-0x1.0000000000000p+0", "0x1.1a62633145c07p-53"),
+    ("-0x1.f9b24942fe45cp-1", "-0x1.4060b67a85370p-3"),
+    ("-0x1.e6f0e13445501p-1", "-0x1.3c6ef372fe946p-2"),
+    ("-0x1.c83201d3d2c6dp-1", "-0x1.d0e2e2b44ddfep-2"),
+    ("-0x1.9e3779b97f4a8p-1", "-0x1.2cf2304755a5dp-1"),
+    ("-0x1.6a09e667f3bcep-1", "-0x1.6a09e667f3bccp-1"),
+    ("-0x1.2cf2304755a5fp-1", "-0x1.9e3779b97f4a7p-1"),
+    ("-0x1.d0e2e2b44de03p-2", "-0x1.c83201d3d2c6cp-1"),
+    ("-0x1.3c6ef372fe952p-2", "-0x1.e6f0e134454ffp-1"),
+    ("-0x1.4060b67a8537bp-3", "-0x1.f9b24942fe45bp-1"),
+    ("-0x1.a79394c9e8a0ap-53", "-0x1.0000000000000p+0"),
+    ("0x1.4060b67a8536ep-3", "-0x1.f9b24942fe45cp-1"),
+    ("0x1.3c6ef372fe94cp-2", "-0x1.e6f0e13445500p-1"),
+    ("0x1.d0e2e2b44ddfep-2", "-0x1.c83201d3d2c6ep-1"),
+    ("0x1.2cf2304755a5cp-1", "-0x1.9e3779b97f4a9p-1"),
+    ("0x1.6a09e667f3bcbp-1", "-0x1.6a09e667f3bcep-1"),
+    ("0x1.9e3779b97f4a7p-1", "-0x1.2cf2304755a60p-1"),
+    ("0x1.c83201d3d2c6cp-1", "-0x1.d0e2e2b44de04p-2"),
+    ("0x1.e6f0e134454ffp-1", "-0x1.3c6ef372fe954p-2"),
+    ("0x1.f9b24942fe45bp-1", "-0x1.4060b67a8537dp-3"),
+)]
 ELL = [(0.0, 0.0), (6.0, 0.0), (6.0, 2.0), (2.0, 2.0), (2.0, 5.0), (0.0, 5.0)]
 HEXAGON = _polygon(6, 5.0)
 HEX_VOID = _polygon(6, 1.5)
