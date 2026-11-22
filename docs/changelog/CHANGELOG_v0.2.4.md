@@ -1,7 +1,12 @@
 # OGR Core v0.2.4
 
-> **En curso.** `main` dice `0.2.4.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
+**La CI corre ya los dos programas, y la forma de trabajar se ajusta al PC nuevo.** La CI de este
+repositorio corre también la suite entera de OGR Slip2D contra el núcleo de cada commit, como la de
+OGR FEM2D desde la v0.2.3. Las ramas fusionadas se borran. Las suites de programas distintos
+pueden correr a la vez. El README enseña a montar el núcleo también en Windows, y un test deja de
+escribir en `/tmp`. La tabla de `docs/consumidores.md` dice que OGR FEM2D fija la v0.2.3. El
+código de `ogr_core` no cambia: `git diff v0.2.3 v0.2.4 -- ogr_core` solo toca el número de la
+versión. Es compatible: ningún programa tiene que cambiar nada.
 
 ## 0. Lo que se encontró
 
@@ -130,9 +135,26 @@ delete head branches»), que es de la propietaria.
 | Suite del núcleo entera, en serie, con el `AGENTS.md` y el changelog nuevos (2026-11-22) | 796 de 796, sin fugas, código 0 |
 | Rutas `/tmp` en el archivo (grep) | solo en el comentario que cuenta por qué ya no la usa |
 
-**Sin medir desde aquí**: la suite de OGR Slip2D en Linux con `--jobs 4` y con `--dev-core`. Su
-propia CI la corre en un proceso y contra la etiqueta, y tarda entre 25 y 40 minutos por trabajo.
-La primera vez que corre así es en la CI de la PR que añade el trabajo.
+**La regla 8, sobre el commit `986ea5c`** (el árbol en `0.2.4.dev0`, con todo lo de esta
+versión; `main` lo tiene desde la PR 14, `dbf4ede`, con el mismo árbol). El 2026-11-22, en
+Windows, las dos a la vez, que es lo que permite la regla nueva, y sin otra corrida de esos
+programas en la máquina.
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `f018616` (su v0.1.481) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7551 casos: 7550 pasan, 0 fallos, 1 saltado, ninguna fuga, código 0. `shared: ogr_core 0.2.4.dev0 … @ 986ea5c`, `DEV CORE` antes y después |
+| OGR FEM2D `311edbf` (su `main`, después de su v0.0.8) **entera** contra ese commit, con `--dev-core` | 287 de 287, ninguna fuga, código 0. `shared: ogr_core 0.2.4.dev0 … @ 986ea5c`, `DEV CORE` antes y después |
+| CI de la PR 14 (runs 45063667745 y 45063676633) | todos los trabajos en verde, también `pins` y la suite de OGR Slip2D en Linux (14 y 20 min) |
+| Suite del núcleo con el número `0.2.4` ya puesto, `--jobs 4` | 796 de 796, código 0, ninguna fuga |
+
+El saltado de OGR Slip2D es el mismo que da su propia corrida en este PC (7551 casos, 7550 pasan,
+1 saltado, en su `f018616`).
+
+### Sin probar
+
+- **Los programas contra la versión con su número final**, a mano: lo de arriba es contra
+  `0.2.4.dev0`. El commit que pone `0.2.4` solo cambia el número y los documentos, y la CI de su
+  PR corre los dos programas contra él.
 
 ## 4. Queda abierto
 
