@@ -66,6 +66,86 @@ def triangle_shape_ratio(p1, p2, p3) -> float:
     return abs(det) / l2 if l2 > 0.0 else 0.0
 
 
+# ----------------------------------------------------------------------
+# v0.2.5 -- the two exact, scale-invariant quality measures of
+# Shewchuk, J. R. (2002), "What is a good linear finite element?
+# Interpolation, conditioning, anisotropy, and quality measures" (preprint
+# of 31-12-2002): table 4 (p. 44) gives them without their constants
+# ("constants have been dropped because the measures are used only to
+# compare elements", p. 45); table 6 (p. 53) prints the constants that make
+# them "fair" (section 6.3, p. 51): zero on a degenerate triangle, invariant
+# with scale, and with a maximum of one, reached by the equilateral
+# triangle. Both are negative on an inverted (clockwise) triangle, because
+# A is the SIGNED area (table 1, p. 3; appendix A.1, pp. 60-61). The smooth
+# variants of the same tables are not given here: the source calls them
+# "less accurate indicators than the nonsmooth measures" (p. 45).
+
+#: Table 6, first row: 4 (12 + 7 sqrt 3)^(1/3) / 3.
+GRADIENT_QUALITY_SCALE = 4.0 * (12.0 + 7.0 * math.sqrt(3.0)) ** (1.0 / 3.0) / 3.0
+#: Table 6, third row: 4 sqrt 3.
+CONDITIONING_QUALITY_SCALE = 4.0 * math.sqrt(3.0)
+
+
+def _signed_area_and_squares(p1, p2, p3):
+    """The signed area A, positive counterclockwise (appendix A.1, with
+    c = p3), and the squared edge lengths."""
+    (ax, ay), (bx, by), (cx, cy) = p1, p2, p3
+    area = 0.5 * ((ax - cx) * (by - cy) - (bx - cx) * (ay - cy))
+    squares = ((bx - cx) ** 2 + (by - cy) ** 2,
+               (cx - ax) ** 2 + (cy - ay) ** 2,
+               (ax - bx) ** 2 + (ay - by) ** 2)
+    return area, squares
+
+
+def triangle_gradient_quality(p1, p2, p3) -> float:
+    """The measure tied to the error of the interpolated GRADIENT
+    (Shewchuk 2002b, table 4, scale-invariant row; normalised by table 6):
+
+        4 (12 + 7 sqrt 3)^(1/3) / 3 * A / (lmax lmed (lmin + 4 |r_in|))^(2/3)
+
+    with r_in = 2A / (l1 + l2 + l3) (table 1). One on the equilateral
+    triangle, zero on a degenerate one, negative on an inverted one. Two
+    coincident vertices make it 0/0 (the source: "zero (or undefined)",
+    p. 43); it is given as zero, as for any triangle with A = 0."""
+    area, squares = _signed_area_and_squares(p1, p2, p3)
+    if area == 0.0:
+        return 0.0
+    lmin, lmed, lmax = sorted(math.sqrt(s) for s in squares)
+    r_in = 2.0 * area / (lmin + lmed + lmax)
+    return GRADIENT_QUALITY_SCALE * area / (
+        lmax * lmed * (lmin + 4.0 * abs(r_in))) ** (2.0 / 3.0)
+
+
+def triangle_conditioning_quality(p1, p2, p3) -> float:
+    """The measure tied to the conditioning of the stiffness matrix
+    (Shewchuk 2002b, table 4, scale-invariant row; normalised by table 6):
+
+        4 sqrt 3 * A / (3 lrms^2 + sqrt((3 lrms^2)^2 - 48 A^2))
+
+    with lrms^2 = (l1^2 + l2^2 + l3^2) / 3 (table 1), so 3 lrms^2 is the sum
+    S of the squared edges a^2, b^2, c^2.
+
+    The radicand is not evaluated as written. On the equilateral triangle
+    it is exactly zero, so S^2 - 48 A^2 is the difference of two nearly
+    equal numbers, and the square root turns its rounding (1e-16) into an
+    error of 1e-8 in the measure, or a NaN when it lands below zero (table
+    6 warns of the "infinite gradient for an equilateral triangle";
+    measured: 0.99999998 on a turned equilateral triangle). Heron's formula,
+    16 A^2 = 2 (a^2 b^2 + b^2 c^2 + c^2 a^2) - (a^4 + b^4 + c^4), turns it
+    into a sum of squares with no such cancellation:
+
+        S^2 - 48 A^2 = 2 ((a^2 - b^2)^2 + (b^2 - c^2)^2 + (c^2 - a^2)^2),
+
+    the same number in exact arithmetic, never negative, and zero exactly
+    when the three edges are equal."""
+    area, (a2, b2, c2) = _signed_area_and_squares(p1, p2, p3)
+    if area == 0.0:
+        return 0.0
+    radicand = 2.0 * ((a2 - b2) ** 2 + (b2 - c2) ** 2 + (c2 - a2) ** 2)
+    return CONDITIONING_QUALITY_SCALE * area / (
+        a2 + b2 + c2 + math.sqrt(radicand))
+
+
 @dataclass(frozen=True)
 class Node:
     """A mesh vertex."""
@@ -124,6 +204,16 @@ class Element:
     def shape_ratio(self, mesh: "Mesh") -> float:
         """See :func:`triangle_shape_ratio`."""
         return triangle_shape_ratio(*self.coords(mesh))
+
+    def gradient_quality(self, mesh: "Mesh") -> float:
+        """See :func:`triangle_gradient_quality` (negative if the nodes
+        are clockwise)."""
+        return triangle_gradient_quality(*self.coords(mesh))
+
+    def conditioning_quality(self, mesh: "Mesh") -> float:
+        """See :func:`triangle_conditioning_quality` (negative if the
+        nodes are clockwise)."""
+        return triangle_conditioning_quality(*self.coords(mesh))
 
     def shape_gradients(self, mesh: "Mesh"):
         """(dN/dx, dN/dy, area) for the three linear shape functions.
@@ -211,6 +301,25 @@ class Mesh:
             "min_area": min(areas),
             "max_area": max(areas),
             "total_area": sum(areas),
+        }
+
+    def quality_measures(self) -> dict:
+        """The two measures of Shewchuk (2002b) over the mesh: the worst
+        and the mean of each, and how many elements are inverted (negative
+        measure). Kept apart from :meth:`quality_stats`, whose dictionary
+        the programs already read (v0.2.5)."""
+        if not self.elements:
+            return {"elements": 0}
+        grad = [e.gradient_quality(self) for e in self.elements]
+        cond = [e.conditioning_quality(self) for e in self.elements]
+        n = len(self.elements)
+        return {
+            "elements": n,
+            "min_gradient_quality": min(grad),
+            "mean_gradient_quality": sum(grad) / n,
+            "min_conditioning_quality": min(cond),
+            "mean_conditioning_quality": sum(cond) / n,
+            "inverted": sum(1 for g in grad if g < 0.0),
         }
 
     # ------------------------------------------------------------------

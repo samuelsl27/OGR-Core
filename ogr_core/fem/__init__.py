@@ -28,6 +28,8 @@ from .mesh import (  # noqa: F401
     Element,
     Mesh,
     Node,
+    triangle_conditioning_quality,
+    triangle_gradient_quality,
     triangle_shape_ratio,
 )
 from .seepage_data import (  # noqa: F401
@@ -43,7 +45,8 @@ from .seepage_data import (  # noqa: F401
 
 __all__ = [
     "DEGENERATE_SHAPE_RATIO", "Element", "Mesh", "Node",
-    "triangle_shape_ratio", "BCType", "NodeBC", "SegmentBC",
+    "triangle_shape_ratio", "triangle_gradient_quality",
+    "triangle_conditioning_quality", "BCType", "NodeBC", "SegmentBC",
     "SeepageBoundaryConditions", "SeepageResult", "element_fluxes",
     "hydraulic_props_of", "restore_derived",
 ]
