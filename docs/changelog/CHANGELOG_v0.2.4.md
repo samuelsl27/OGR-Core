@@ -88,6 +88,10 @@
   test ya exigía que una razón no sobreviva a su causa: con el trabajo puesto y la razón sin
   quitar, falla.
 - `docs/consumidores.md` y `AGENTS.md` dicen que la CI corre los dos programas.
+- `docs/consumidores.md`: OGR FEM2D fija `v0.2.3` desde su v0.0.7 (`914bf0e`), que lo pidió en su
+  changelog. Llegó a su `main` de GitHub el 2026-11-22 con su v0.0.8 (`2cd6420`), y desde
+  entonces el trabajo `pins` de esta CI estaba en rojo, el aviso que la tabla prevé. `suite.toml`
+  (en `OGR_Suite`) ya lo decía.
 - `README.md` y `README.es.md`: la sección «Install for development» pasa a llamarse
   «Development» («Desarrollo»). Dice qué hace falta (Python 3.11 o posterior y git), añade la
   receta de Windows sin activar el entorno, que el núcleo va en editable solo en su propio
