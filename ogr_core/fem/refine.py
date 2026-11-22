@@ -9,7 +9,9 @@ Sources (page numbers are those printed on the preprints):
 
 * Shewchuk, J. R. (2002a). "Delaunay refinement algorithms for triangular
   mesh generation". Computational Geometry 22, 21-74 (preprint of
-  21-5-2001). Section 3.1, pp. 7-11; Lemma 1, p. 9; Theorem 4, p. 16;
+  21-5-2001). Section 3.1, pp. 7-11; Lemma 1, p. 9; insertion radius and
+  parent, pp. 13-14; Theorem 4, p. 16; section 6.2 (concentric shells),
+  p. 29; section 6.3 (the Terminator), pp. 33-36, Theorems 11 and 12;
   Appendix A, figures 38 and 39, pp. 47-51.
 * Ruppert, J. (1995). "A Delaunay refinement algorithm for quality
   2-dimensional mesh generation". J. Algorithms 18(3), 548-585: starting
@@ -24,7 +26,8 @@ What it does
 1. **Delaunay triangulation of the input vertices**, in their order, by
    Bowyer-Watson insertion inside a large enclosing triangle.
 2. **Segment recovery** (Ruppert): a segment that is not an edge of the
-   triangulation is split at its midpoint until all its pieces are edges.
+   triangulation is split (where step 4 would split it) until all its
+   pieces are edges.
    Every recovered piece (a *subsegment*) is constrained from then on: no
    later insertion removes it (Shewchuk p. 7, "simply by never flipping or
    removing any subsegment"). When all are in, the triangulation is the
@@ -36,8 +39,10 @@ What it does
    line 2; p. 48: so that small exterior features do not bring forth
    unnecessarily small triangles), so the encroachment of a subsegment from
    its exterior side never counts.
-4. **Refinement** (section 3.1 and figure 38, without the Terminator):
-   encroached subsegments are split first, at their midpoint. A subsegment
+4. **Refinement** (section 3.1, figures 38 and 39): encroached
+   subsegments are split first: at their midpoint, or, next to an input
+   vertex shared by two segments, on the circle of radius a power of two
+   around it that splits best (section 6.2). A subsegment
    is encroached when a vertex other than its endpoints lies ON or inside
    its diametral circle and is visible from it (p. 7); in a constrained
    Delaunay triangulation only the one or two vertices opposite it need to
@@ -52,6 +57,20 @@ What it does
    p. 50), found without touching the mesh. If there are any, the
    circumcentre is not inserted, all of them are split (p. 9) and the
    triangle goes back to the queue (line 24).
+5. **The Terminator** (section 6.3) decides those last splits when the
+   subsegment ends at a vertex where segments meet at 60 degrees or less
+   (its *cluster*): it splits only if one of the conditions A (the
+   shortest edge the split would make is no shorter than the insertion
+   radius of the vertex that caused it), B (the triangle is too large),
+   C (the subsegment's length is not a power of two), D (it has a cluster
+   at each end) or E (a subsegment of its cluster is shorter) holds; a
+   triangle it declines to split is never tried again. F is left out (the
+   source: optional, possibly slow, not implemented by its author). It
+   always ends (Theorem 11), and every triangle then has circumradius /
+   shortest edge at most 1 / (sqrt 2 sin(phi / 2)), phi the smallest
+   input angle (Theorem 12); with no input angle of 60 degrees or less it
+   never declines, and every triangle is within B. The notes say phi, that
+   bound, and which triangles are left above B, and where.
 
 Choices the source leaves open, fixed here
 ------------------------------------------
@@ -67,6 +86,22 @@ Choices the source leaves open, fixed here
   positive constant (p. 11). ``math.inf`` is no bound.
 * **B >= sqrt(2)** is required: Theorem 4 guarantees the end only from
   there (p. 16).
+* **Two shared endpoints**: the shells of the endpoint of the smaller
+  index (the source: "choose one endpoint's shells arbitrarily"). The
+  shells are powers of two of the unit of length, so the mesh depends on
+  that unit (p. 29), and the notes say so.
+* **The insertion radius** of the vertices there before refinement (input
+  vertices and those of the recovery) is the shortest edge they have when
+  it starts; the source's definition (p. 13) assumes it starts from the
+  constrained Delaunay triangulation of the input alone. Line 19 of
+  figure 38 takes r_g, not its alternative (the shortest edge of t).
+* **"Within some tolerance"** (figure 38, lines 27 and 30): 1e-9,
+  relative.
+* **No edge shorter than 2**-40 of the extent of the input** is made; a
+  refinement that would need one stops with an error. One that ends never
+  comes near it; one that cannot end (Ruppert's algorithm alone on a small
+  angle, p. 27) would otherwise shrink its edges to the smallest numbers
+  floating point has.
 
 Determinism
 -----------
@@ -74,15 +109,19 @@ The same input gives the same mesh, bit for bit, on every platform. The
 geometric predicates (orientation, in-circle, in-diametral-circle) are
 exact: a floating-point filter whose threshold is several orders above the
 rounding of the expression, and exact rational arithmetic
-(``fractions.Fraction``) below it. The new points (midpoints,
-circumcentres) use only + - * /, which IEEE 754 rounds the same everywhere.
-No queue or loop depends on the order of a ``set``.
+(``fractions.Fraction``) below it. The new points and every length a
+decision reads use only + - * / and sqrt, which IEEE 754 rounds the same
+everywhere, and powers of two by ``frexp`` and ``ldexp``, which are exact:
+no sin, cos, atan2 or ``math.dist``, whose results each platform's library
+rounds its own way (they appear only in the notes). No queue or loop
+depends on the order of a ``set``.
 
 Author: Samuel Sáez López (UPCT)
 """
 from __future__ import annotations
 
 import bisect
+import functools
 import heapq
 import math
 from collections import deque
@@ -103,6 +142,12 @@ MIN_RATIO = math.sqrt(2.0)
 #: few units of 2**-53 (1.1e-16) of that sum, four orders below; under the
 #: threshold the predicate is evaluated again in exact rational arithmetic.
 _FILTER = 1e-12
+
+#: How close to a power of two a length must be to count as one (figure 38,
+#: line 27: "within some tolerance"), relative; the same for "shorter"
+#: (line 30). A split on a shell leaves a length of 2**i up to the rounding
+#: of a + t (b - a).
+_TOLERANCE = 1e-9
 
 #: The labels of a triangle before the regions are known.
 _UNKNOWN, _OUTSIDE, _VOID = -1, -2, -3
@@ -216,6 +261,19 @@ def _circumcentre(a, b, c):
     b2, c2 = bx * bx + by * by, cx * cx + cy * cy
     d = 2.0 * (bx * cy - by * cx)
     return (a[0] + (cy * b2 - by * c2) / d, a[1] + (bx * c2 - cx * b2) / d)
+
+
+def _power_of_two(length: float) -> bool:
+    m, _e = math.frexp(length)              # length = m 2**e, 0.5 <= m < 1
+    return abs(m - 0.5) <= 0.5 * _TOLERANCE or abs(m - 1.0) <= _TOLERANCE
+
+
+def _dist(p, q) -> float:
+    """The distance from p to q as sqrt(dx**2 + dy**2): operations that
+    IEEE 754 rounds the same on every platform. Not ``math.dist``, whose C
+    implementation need not."""
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    return math.sqrt(dx * dx + dy * dy)
 
 
 def _key(a: int, b: int) -> tuple:
@@ -553,10 +611,25 @@ class _Refiner:
         self.size = size
         self.max_triangles = max_triangles
         self.unsplittable = 0
+        #: the input segments at each input vertex
+        self.incident = [[] for _ in range(len(pts))]
+        for k, (u, v) in enumerate(pairs):
+            self.incident[u].append(k)
+            self.incident[v].append(k)
+        #: insertion radius of each mesh vertex (pp. 13-14)
+        self.r: dict = {}
+        #: (apex, input segment) -> (segments of its cluster, sin(phi_min/2))
+        self.clusters: dict = {}
+        #: the smallest angle between two input segments inside the domain
+        self.min_angle = None
+        #: the splits the Terminator declined, and what it read
+        self.declined: list = []
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
         cx, cy = 0.5 * (min(xs) + max(xs)), 0.5 * (min(ys) + max(ys))
         span = max(max(xs) - min(xs), max(ys) - min(ys))
+        #: no edge shorter than this is made (see _too_fine)
+        self.shortest = math.ldexp(span, -40)
         enc = [(cx - 20.0 * span, cy - 10.0 * span),
                (cx + 20.0 * span, cy - 10.0 * span),
                (cx, cy + 20.0 * span)]
@@ -605,7 +678,10 @@ class _Refiner:
                      (c[0] - a[0]) ** 2 + (c[1] - a[1]) ** 2,
                      (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2))
         det = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-        return sq[1] * sq[2] / (4.0 * det * det)
+        den = 4.0 * det * det
+        if den == 0.0:          # flat in floating point: see _too_fine
+            return math.inf
+        return sq[1] * sq[2] / den
 
     def _skinny(self, t) -> Optional[float]:
         """The squared ratio if t is skinny and its smallest angle does not
@@ -646,6 +722,18 @@ class _Refiner:
             self.queued.add(key)
             self.qs.append(key)
 
+    def _too_fine(self, xy) -> None:
+        """The refinement is about to make an edge shorter than
+        ``shortest`` (2**-40 of the extent of the input), or a triangle flat
+        in floating point. A refinement that ends does not come near it
+        (Theorems 4 and 11 bound the edges from below by the input's own
+        features); it is how one fails to end where it cannot, as Ruppert's
+        algorithm on a small input angle (Shewchuk 2002a, p. 27): its edges
+        shrink without end, next to the origin down to the smallest numbers
+        floating point has, never reaching ``max_triangles``. It is said
+        rather than run into a division by zero."""
+        raise QualityMeshError(M.REFINE_TOO_FINE, x=xy[0], y=xy[1])
+
     def _check_count(self) -> None:
         if self.T.n_alive > self.max_triangles:
             raise QualityMeshError(M.REFINE_TOO_MANY_TRIANGLES,
@@ -672,9 +760,7 @@ class _Refiner:
             if T.has_edge(a, b):
                 T.sub[_key(a, b)] = k
                 continue
-            pa, pb = T.p[a], T.p[b]
-            m = T.add_point((pa[0] + 0.5 * (pb[0] - pa[0]),
-                             pa[1] + 0.5 * (pb[1] - pa[1])))
+            m = T.add_point(self.split_point(_key(a, b)))
             t = T.locate(T.p[m], T.vt[a])
             T.insert(m, T.cavity(T.p[m], t))
             self._check_count()
@@ -766,11 +852,173 @@ class _Refiner:
                 raise QualityMeshError(M.REFINE_VERTEX_OUTSIDE, i=i,
                                        x=T.p[i][0], y=T.p[i][1])
 
+    def _apex(self, v) -> bool:
+        """An input vertex shared by two or more input segments."""
+        return v < self.n_input and len(self.incident[v]) >= 2
+
     def split_point(self, key):
-        """Where subsegment ``key`` is split: its midpoint (section 3.1),
-        as a + (b - a)/2, so a segment on x = 0 keeps x = 0."""
-        a, b = (self.T.p[i] for i in key)
-        return (a[0] + 0.5 * (b[0] - a[0]), a[1] + 0.5 * (b[1] - a[1]))
+        """Where subsegment ``key`` is split. Its midpoint (section 3.1),
+        unless an endpoint is an input vertex shared with another segment:
+        then on the concentric circle of radius a power of two around that
+        vertex that gives the best-balanced split (section 6.2, p. 29), so
+        that the piece next to it has a power-of-two length; with both
+        endpoints shared, the one of the smaller index (the source: "choose
+        one endpoint's shells arbitrarily"). A power of two of the unit of
+        length: the mesh depends on that unit. The point is a + t (b - a),
+        so a segment on x = 0 keeps x = 0."""
+        T = self.T
+        a, b = key
+        apex = a if self._apex(a) else (b if self._apex(b) else None)
+        if apex is None:
+            pa, pb = T.p[a], T.p[b]
+            return (pa[0] + 0.5 * (pb[0] - pa[0]),
+                    pa[1] + 0.5 * (pb[1] - pa[1]))
+        far = b if apex == a else a
+        ps, pf = T.p[apex], T.p[far]
+        length = math.sqrt((pf[0] - ps[0]) ** 2 + (pf[1] - ps[1]) ** 2)
+        half = 0.5 * length
+        _m, e = math.frexp(half)            # half = m 2**e, 0.5 <= m < 1
+        lo, hi = math.ldexp(1.0, e - 1), math.ldexp(1.0, e)
+        shell = lo if half - lo <= hi - half else hi
+        t = shell / length
+        return (ps[0] + t * (pf[0] - ps[0]), ps[1] + t * (pf[1] - ps[1]))
+
+    # -- the small input angles (section 6.3) -------------------------------
+    def _piece(self, a, k) -> Optional[int]:
+        """The other end of the piece of input segment k that touches
+        vertex a."""
+        T = self.T
+        for t in T.around(a):
+            v = T.tv[t]
+            i = v.index(a)
+            for y in (v[(i + 1) % 3], v[(i + 2) % 3]):
+                if T.sub.get(_key(a, y)) == k:
+                    return y
+        return None
+
+    def _far(self, a, k):
+        u, v = self.pairs[k]
+        return self.T.p[v if u == a else u]
+
+    def analyse_angles(self) -> None:
+        """The input angles at each shared input vertex, inside the domain
+        ("exterior" small angles are ignored, p. 33), and the subsegment
+        clusters: the segments at a vertex joined, one to the next, by
+        angles of 60 degrees or less (p. 33; figure 29). Whether an angle
+        is 60 degrees or less is decided in exact arithmetic on the input
+        coordinates."""
+        T = self.T
+        for a in range(self.n_input):
+            if not self._apex(a):
+                continue
+            pa = T.p[a]
+
+            def upper(k):
+                f = self._far(a, k)
+                return f[1] > pa[1] or (f[1] == pa[1] and f[0] > pa[0])
+
+            def ccw(k1, k2):
+                h1, h2 = upper(k1), upper(k2)
+                if h1 != h2:
+                    return -1 if h1 else 1
+                return -_orient(pa, self._far(a, k1), self._far(a, k2))
+            ring = sorted(self.incident[a], key=functools.cmp_to_key(ccw))
+            n = len(ring)
+            owner = {k: k for k in ring}
+
+            def root(k):
+                while owner[k] != k:
+                    k = owner[k]
+                return k
+            cos_link: dict = {}
+            for j in range(n):
+                k1, k2 = ring[j], ring[(j + 1) % n]
+                y1 = self._piece(a, k1)
+                inside = any(T.tv[t][(T.tv[t].index(a) + 1) % 3] == y1
+                             for t in T.around(a))
+                if not inside:
+                    continue
+                f1, f2 = self._far(a, k1), self._far(a, k2)
+                d1 = (f1[0] - pa[0], f1[1] - pa[1])
+                d2 = (f2[0] - pa[0], f2[1] - pa[1])
+                cross = d1[0] * d2[1] - d1[1] * d2[0]
+                dot = d1[0] * d2[0] + d1[1] * d2[1]
+                angle = math.degrees(math.atan2(cross, dot)) % 360.0
+                if self.min_angle is None or angle < self.min_angle:
+                    self.min_angle = angle
+                x1, y1f, x2, y2f = (Fraction(c) for c in (*d1, *d2))
+                cr = x1 * y2f - y1f * x2
+                dt = x1 * x2 + y1f * y2f
+                small = (cr > 0 and dt > 0 and 4 * dt * dt
+                         >= (x1 * x1 + y1f * y1f) * (x2 * x2 + y2f * y2f))
+                if small:
+                    owner[root(k2)] = root(k1)
+                    c = dot / math.sqrt((d1[0] ** 2 + d1[1] ** 2)
+                                        * (d2[0] ** 2 + d2[1] ** 2))
+                    cos_link[(k1, k2)] = c
+            groups: dict = {}
+            for k in ring:
+                groups.setdefault(root(k), []).append(k)
+            for members in groups.values():
+                if len(members) < 2:
+                    continue
+                cmax = max(c for (k1, k2), c in cos_link.items()
+                           if k1 in members)
+                sin_half = math.sqrt(max(0.0, 0.5 * (1.0 - cmax)))
+                for k in members:
+                    self.clusters[(a, k)] = (tuple(members), sin_half)
+
+    def _split_permitted(self, key, t) -> bool:
+        """Line 21 of figure 38 for a subsegment encroached by the
+        circumcentre of t: d is the insertion radius of g, the youngest
+        endpoint of the shortest edge of t (line 19)."""
+        T = self.T
+        v = T.tv[t]
+        sq = [_dist(T.p[v[(i + 1) % 3]], T.p[v[(i + 2) % 3]])
+              for i in range(3)]
+        i = min(range(3), key=lambda j: (sq[j], j))
+        g = max(v[(i + 1) % 3], v[(i + 2) % 3])
+        return self.permitted(key, self.r[g])
+
+    def permitted(self, key, d) -> bool:
+        """Figure 38, SPLITPERMITTED(s, d) (lines 27-35), with the
+        conditions A, C, D and E of section 6.3 (p. 34; B, the size, is the
+        caller's). F is left out: the source calls it optional and possibly
+        slow, and its author did not implement it (p. 50)."""
+        T = self.T
+        seg = T.sub[key]
+        mine = [(e, self.clusters[(e, seg)]) for e in key
+                if (e, seg) in self.clusters]
+        if len(mine) != 1:                  # no cluster (Ruppert), or D
+            return True
+        a, b = key
+        length = _dist(T.p[a], T.p[b])
+        if not _power_of_two(length):       # C
+            return True
+        apex, (members, sin_half) = mine[0]
+        shortest = None
+        for k in members:                   # E
+            if k != seg:
+                y = self._piece(apex, k)
+                if y is None:
+                    continue
+                piece = _dist(T.p[apex], T.p[y])
+                shortest = piece if shortest is None else min(shortest, piece)
+                if piece < length * (1.0 - _TOLERANCE):
+                    return True
+        # A: r_min, the shortest edge the split of the cluster would make
+        # (line 32), against d
+        if length * sin_half >= d:
+            return True
+        self.declined.append({
+            "subsegment": [list(T.p[a]), list(T.p[b])],
+            "apex": list(T.p[apex]),
+            "length": length,
+            "r_min": length * sin_half,
+            "r_g": d,
+            "cluster_shortest": shortest,
+        })
+        return False
 
     def _new_vertex(self, v, new) -> None:
         """Figure 39, NEWVERTEX: the subsegments the new vertex encroaches
@@ -794,7 +1042,17 @@ class _Refiner:
             if key not in T.sub:
                 continue
             tris = T.edge_triangles(*key)
-            v = T.add_point(self.split_point(key))
+            xy = self.split_point(key)
+            pa, pb = T.p[key[0]], T.p[key[1]]
+            near = [_dist(xy, T.p[w]) for tt in tris for w in T.tv[tt]
+                    if w not in key and _in_diametral_circle(pa, pb, T.p[w])]
+            if min(_dist(xy, pa), _dist(xy, pb)) < self.shortest:
+                self._too_fine(xy)
+            v = T.add_point(xy)
+            # p. 13: the distance to the nearest encroaching mesh vertex,
+            # or the radius of the diametral circle if only a rejected
+            # circumcentre encroached
+            self.r[v] = min(near) if near else 0.5 * _dist(pa, pb)
             new = T.insert(v, T.cavity(T.p[v], tris[0], through=key),
                            through=key)
             self._check_count()
@@ -803,13 +1061,21 @@ class _Refiner:
                 if self._encroached(half):
                     self._queue_sub(half)
 
-    def _split_permitted(self, key, t) -> bool:
-        """Figure 38, SPLITPERMITTED: always, in Ruppert's algorithm."""
-        return True
-
     def refine(self) -> None:
         """Figure 38, lines 3-25."""
         T = self.T
+        # the insertion radius of the vertices already there: the shortest
+        # edge they have when refinement starts (p. 13: the length of the
+        # shortest edge connected to v immediately after v is introduced)
+        for t in range(len(T.tv)):
+            if T.alive[t]:
+                v = T.tv[t]
+                for i in range(3):
+                    a, b = v[(i + 1) % 3], v[(i + 2) % 3]
+                    d = _dist(T.p[a], T.p[b])
+                    for w in (a, b):
+                        if d < self.r.get(w, math.inf):
+                            self.r[w] = d
         for key in list(T.sub):
             if self._encroached(key):
                 self._queue_sub(key)
@@ -823,7 +1089,11 @@ class _Refiner:
             if not T.alive[t] or t in given_up:
                 continue
             a, b, c = (T.p[i] for i in T.tv[t])
+            if (b[0] - a[0]) * (c[1] - a[1]) == (b[1] - a[1]) * (c[0] - a[0]):
+                self._too_fine(T.centroid(t))
             cc = _circumcentre(a, b, c)
+            if _dist(cc, a) < self.shortest:
+                self._too_fine(cc)
             kind, where = T.toward(t, cc)
             if kind == "stuck":
                 self.unsplittable += 1
@@ -839,6 +1109,7 @@ class _Refiner:
                        and _in_diametral_circle(T.p[x], T.p[y], cc)]
             if not hit:
                 v = T.add_point(cc)
+                self.r[v] = _dist(cc, a)        # the circumradius
                 new = T.insert(v, cav)
                 self._check_count()
                 self._new_vertex(v, new)
@@ -904,6 +1175,14 @@ class _Refiner:
             "vertices_added": [len(c) - 2 for c in chains],
             "above_ratio": above,
             "unsplittable": self.unsplittable,
+            "min_input_angle": self.min_angle,
+            "theorem_12_bound": (
+                1.0 / (math.sqrt(2.0)
+                       * math.sin(math.radians(self.min_angle) / 2.0))
+                if self.min_angle is not None and self.min_angle <= 60.0
+                else None),
+            "length_unit": M.refine_note(M.REFINE_LENGTH_UNIT),
+            "declined_splits": self.declined,
         }
         mesh = Mesh(nodes=nodes, elements=elements)
         mesh.notes["quality_triangulation"] = notes
@@ -922,9 +1201,11 @@ def quality_triangulation(pslg, *, max_ratio: float = MIN_RATIO,
     default sqrt 2; Shewchuk 2002a, p. 5) and whose edges are no longer
     than ``size(x, y)`` where it is given.
 
-    The guarantee of the source holds when no two segments meet at less
-    than 60 degrees (Theorem 4); below that, the refinement may not end,
-    and ``max_triangles`` stops it with a ``QualityMeshError``.
+    Where two input segments meet at 60 degrees or less, the triangles
+    next to that vertex may stay above B: the Terminator bounds every
+    triangle by 1 / (sqrt 2 sin(phi / 2)), phi the smallest input angle
+    (Theorem 12), and the notes list those left above B. ``max_triangles``
+    stops a mesh that would grow beyond it, with a ``QualityMeshError``.
     """
     try:
         b = float(max_ratio)
@@ -937,5 +1218,6 @@ def quality_triangulation(pslg, *, max_ratio: float = MIN_RATIO,
     r.triangulate()
     r.recover()
     r.classify()
+    r.analyse_angles()
     r.refine()
     return r.result(labels)

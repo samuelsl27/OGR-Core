@@ -121,6 +121,8 @@ REFINE_SEEDS_SHARE_REGION = "refine.seeds_share_region"
 REFINE_REGION_WITHOUT_SEED = "refine.region_without_seed"
 REFINE_VERTEX_OUTSIDE = "refine.vertex_outside"
 REFINE_TOO_MANY_TRIANGLES = "refine.too_many_triangles"
+REFINE_LENGTH_UNIT = "refine.length_unit"
+REFINE_TOO_FINE = "refine.too_fine"
 
 REFINE_MESSAGES = {s.code: s for s in (
     MessageSpec(REFINE_BAD_RATIO,
@@ -169,6 +171,13 @@ REFINE_MESSAGES = {s.code: s for s in (
     MessageSpec(REFINE_TOO_MANY_TRIANGLES,
                 "the mesh reached {limit} triangles before it was finished: "
                 "raise the limit, or relax the size bound"),
+    MessageSpec(REFINE_TOO_FINE,
+                "the refinement made edges too short for the floating-point "
+                "coordinates near ({x:.6g}, {y:.6g}) and cannot go on"),
+    MessageSpec(REFINE_LENGTH_UNIT,
+                "next to a vertex where two segments meet, the mesh splits the "
+                "segments at distances that are powers of two of the unit of "
+                "length: the same model in other units gives another mesh"),
 )}
 
 
