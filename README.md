@@ -22,7 +22,10 @@ A Slip2D up to v0.1.471 and a program built on this core must not share a Python
 install a package named `ogr_core`, and that Slip2D also installs one named `ogr_fem2d`, the name
 of the finite-element program's own package.
 
-## Install for development
+## Development
+
+You need Python 3.11 or newer (CI runs 3.11, 3.12 and 3.13) and git. Nothing else: the core has
+no Qt and no compiled code.
 
 ```bash
 git clone https://github.com/samuelsl27/OGR-Core.git
@@ -31,6 +34,25 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 python tests/_runner.py
 ```
+
+On Windows, without activating the environment:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -e .
+.venv\Scripts\python tests\_runner.py
+```
+
+The suite is green when its totals say `Failed: 0`. It uses the suite's own runner
+(`ogr_core/testing/`), which brings a stand-in `pytest`: the real pytest is not needed.
+
+The core goes in editable mode in this environment only. A program never installs this tree in
+editable mode: it installs the tag it pins (below).
+
+To work on the whole suite (this core and the programs side by side, each in its own
+environment), this repository lives inside the `OGR_Suite` workspace, and `DESARROLLO.md` at the
+root of that workspace says what to install on a Windows machine and how to set it all up (in
+Spanish; from this folder it is `../../DESARROLLO.md`).
 
 Each program pins a tagged version of this core and installs it from its tag. The program's test
 runner states which core tree, commit and version it is measuring, and refuses to run when the

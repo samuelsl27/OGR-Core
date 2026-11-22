@@ -25,6 +25,16 @@
   `main`, las corridas 44847262314 (`83a3421`) y 44854765063 (`45c5146`, su v0.1.477), con 7547
   casos, 7541 pasan, 0 fallan, 6 saltados y ninguna fuga. Con eso desaparece la razón escrita en
   la v0.2.3 para no correrla aquí.
+- **El README solo enseñaba a montar el núcleo en Linux o macOS, y el núcleo no tenía entorno
+  propio en el PC de desarrollo.** La única receta activaba el entorno con
+  `source .venv/bin/activate`, que en Windows no existe. Y en ese PC la suite corría con el Python
+  del sistema, que llevaba las dependencias instaladas a mano. Salió al escribir la guía para
+  montar la suite en un PC nuevo (`DESARROLLO.md`, en la carpeta de trabajo `OGR_Suite`) y
+  ensayarla el 2026-11-21: un clon nuevo de este repositorio, un `.venv` de Python 3.14.7 creado
+  de cero y `pip install -e .`. Así la suite sale entera en verde, con las dependencias que pip
+  resuelve hoy (numpy 2.5.5, scipy 1.18.1, shapely 2.2.0, ezdxf 1.4.5, h5py 3.16.0, reportlab
+  5.1.0). Ese verde dependía, sin saberlo, de que aquel PC tuviera `C:\tmp`: en una máquina sin
+  ella, la misma receta da 22 fallos (el hallazgo siguiente).
 
 ## 1. Qué cambia
 
@@ -45,6 +55,10 @@
   test ya exigía que una razón no sobreviva a su causa: con el trabajo puesto y la razón sin
   quitar, falla.
 - `docs/consumidores.md` y `AGENTS.md` dicen que la CI corre los dos programas.
+- `README.md` y `README.es.md`: la sección «Install for development» pasa a llamarse
+  «Development» («Desarrollo»). Dice qué hace falta (Python 3.11 o posterior y git), añade la
+  receta de Windows sin activar el entorno, que el núcleo va en editable solo en su propio
+  entorno, y dónde está la guía para montar la suite entera. Solo documentación.
 
 El código de `ogr_core` no cambia.
 
@@ -66,6 +80,7 @@ delete head branches»), que es de la propietaria.
 | El test del flujo, con el trabajo `slip2d` quitado, y con el trabajo puesto y la razón sin quitar | falla en los dos |
 | El comando que el guion saca de la tabla para OGR Slip2D, contra este núcleo y su fijación | modo de desarrollo: `QT_QPA_PLATFORM=offscreen` en el entorno y `tests/_runner.py --jobs 4 --dev-core` |
 | Suite del núcleo, con `--jobs 4` (Windows) | 796 de 796, sin fugas |
+| Suite del núcleo en un clon nuevo, con un `.venv` nuevo de Python 3.14.7 y las dependencias de hoy (Windows, en serie; el ensayo de `DESARROLLO.md`) | 796 de 796, código 0 |
 
 **Sin medir desde aquí**: la suite de OGR Slip2D en Linux con `--jobs 4` y con `--dev-core`. Su
 propia CI la corre en un proceso y contra la etiqueta, y tarda entre 25 y 40 minutos por trabajo.
