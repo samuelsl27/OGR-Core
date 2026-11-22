@@ -104,8 +104,15 @@ Son las de OGR Slip2D. Cada una existe porque su ausencia causó un problema rea
    sin `-k`, sin `--fast`); no quiere decir «en serie» ni «sin argumentos». Cada programa se corre
    con el comando que su `AGENTS.md` da para publicar, que esa tabla repite: **léelo antes de
    lanzarla**. OGR Slip2D va con `--jobs 4` y siempre con `QT_QPA_PLATFORM=offscreen`; sin esa
-   variable abre sus ventanas en la pantalla y la corrida no vale. Nunca dos corridas a la vez en
-   la máquina.
+   variable abre sus ventanas en la pantalla y la corrida no vale. En este PC (16 núcleos físicos,
+   64 GB; decisión de la propietaria del 2026-11-22) **las suites de programas distintos pueden
+   correr a la vez**. **Dos corridas del mismo programa a la vez, no**, tampoco desde dos
+   worktrees: comparten los archivos que el runner guarda en la carpeta temporal
+   (`<programa>-test-durations.json` y compañía), y la suite de este repositorio comprueba que
+   nadie los toque mientras corre (`test_runner_jobs_v020.py`). Pasa cuando esta sesión corre la
+   suite de un programa contra un núcleo sin etiquetar mientras la sesión de ese programa corre la
+   suya: se avisa antes. **Una corrida que se cronometra va sola**: si comparte máquina, su reloj
+   no se compara con nada.
 9. **Versiones**: serie propia desde 0.1.0. El número va en dos sitios, `pyproject.toml` y
    `ogr_core/__init__.py`, y un test falla si discrepan. Es `X.Y.Z` en el commit que se etiqueta y
    `X.Y.Z.dev0` entre dos etiquetas: después de etiquetar, `main` pasa a la versión de desarrollo
@@ -138,7 +145,7 @@ Los programas se desarrollan a la vez. Para que el núcleo no vuelva a separarse
   el núcleo instalado desde esa etiqueta, como su CI, y no este árbol en editable: así dos
   programas pueden fijar versiones distintas y este árbol puede seguir a `main`.
 - **Dos cambios del núcleo a la vez**, cada uno en su `git worktree`. El `PYTHONPATH` de la
-  corrida dice cuál se mide, y la cabecera del runner lo nombra.
+  corrida dice cuál se mide, y la cabecera del runner lo nombra. Sus suites, por turnos (regla 8).
 - **`docs/consumidores.md` al día**: qué fija cada programa, qué cambios están en curso y para
   quién, y los pasos para pedir un cambio y para subir una fijación.
 
