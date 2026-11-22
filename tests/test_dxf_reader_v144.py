@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -48,7 +49,12 @@ def _requires_ezdxf(cls):
     return cls if _HAS_EZDXF else type(cls.__name__, (), {})
 
 
-_DXF = Path("/tmp/ogr_test_model.dxf")
+# A folder of this file's own, made by ``tempfile`` where the machine keeps
+# its temporary files. Until v0.2.4 this was the fixed path ``/tmp``, which
+# on Windows means ``C:\tmp`` of the current drive: on a machine without that
+# folder, 22 of these tests failed with FileNotFoundError, and on one with it
+# they wrote into a folder other programs use.
+_DXF = Path(tempfile.mkdtemp(prefix="ogr_test_dxf_reader_")) / "ogr_test_model.dxf"
 
 
 def _make_dxf(path=_DXF):
@@ -271,16 +277,18 @@ class TestCatalogueHelpers:
 
 
 class TestErrorHandling:
-    def test_missing_file_raises_clearly(self):
+    def test_missing_file_raises_clearly(self, tmp_path):
+        missing = tmp_path / "definitely_not_here.dxf"
+        assert not missing.exists()
         try:
-            read_dxf("/tmp/definitely_not_here.dxf")
+            read_dxf(str(missing))
         except RuntimeError as exc:
             assert "DXF" in str(exc)
         else:
             raise AssertionError("expected RuntimeError")
 
-    def test_not_a_dxf_raises(self):
-        p = Path("/tmp/ogr_not_a_dxf.txt")
+    def test_not_a_dxf_raises(self, tmp_path):
+        p = tmp_path / "ogr_not_a_dxf.txt"
         p.write_text("this is not a drawing", encoding="utf-8")
         try:
             read_dxf(p)

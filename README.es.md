@@ -22,7 +22,10 @@ Un Slip2D hasta la v0.1.471 y un programa construido sobre este núcleo no deben
 de Python: los dos instalan un paquete llamado `ogr_core`, y ese Slip2D instala además uno llamado
 `ogr_fem2d`, que es el nombre del paquete del programa de elementos finitos.
 
-## Instalar para desarrollar
+## Desarrollo
+
+Hace falta Python 3.11 o posterior (la CI corre 3.11, 3.12 y 3.13) y git. Nada más: el núcleo no
+tiene Qt ni código compilado.
 
 ```bash
 git clone https://github.com/samuelsl27/OGR-Core.git
@@ -31,6 +34,25 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e .
 python tests/_runner.py
 ```
+
+En Windows, sin activar el entorno:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -e .
+.venv\Scripts\python tests\_runner.py
+```
+
+La suite está en verde cuando sus totales dicen `Failed: 0`. Usa el runner propio de la suite
+(`ogr_core/testing/`), que aporta un `pytest` simulado: el pytest real no hace falta.
+
+El núcleo va en editable solo en este entorno. Un programa nunca instala este árbol en editable:
+instala la etiqueta que fija (abajo).
+
+Para trabajar en la suite entera (este núcleo y los programas a la vez, cada uno con su entorno),
+este repositorio vive dentro de la carpeta de trabajo `OGR_Suite`, y el `DESARROLLO.md` de su raíz
+dice qué instalar en un PC con Windows y cómo se monta todo (desde esta carpeta,
+`../../DESARROLLO.md`).
 
 Cada programa fija una versión etiquetada de este núcleo y la instala desde su etiqueta. El runner
 del programa dice de qué árbol, de qué commit y de qué versión sale el núcleo, y se niega a
