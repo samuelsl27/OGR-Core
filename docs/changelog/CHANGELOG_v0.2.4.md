@@ -35,6 +35,14 @@
   resuelve hoy (numpy 2.5.5, scipy 1.18.1, shapely 2.2.0, ezdxf 1.4.5, h5py 3.16.0, reportlab
   5.1.0). Ese verde dependía, sin saberlo, de que aquel PC tuviera `C:\tmp`: en una máquina sin
   ella, la misma receta da 22 fallos (el hallazgo siguiente).
+- **Un test dependía de una carpeta de la máquina.** `tests/test_dxf_reader_v144.py` escribía en
+  la ruta fija `/tmp`, que en Windows es `C:\tmp` de la unidad actual: el dibujo de prueba
+  (`/tmp/ogr_test_model.dxf`, del que leen 21 tests) y el archivo que no es un DXF
+  (`/tmp/ogr_not_a_dxf.txt`). Un tercero solo nombraba `/tmp/definitely_not_here.dxf` y daba por
+  hecho que no existía. Salió al poner en marcha la suite en el PC nuevo, el 2026-11-22: sin
+  `C:\tmp`, 774 de 796, con los 22 fallos de ese archivo y todos `FileNotFoundError`; con la
+  carpeta creada a mano, 796 de 796. Donde la carpeta existía, el test escribía además en una
+  carpeta que usan otros programas, y que OGR Slip2D usa todavía.
 
 ## 1. Qué cambia
 
@@ -59,6 +67,10 @@
   «Development» («Desarrollo»). Dice qué hace falta (Python 3.11 o posterior y git), añade la
   receta de Windows sin activar el entorno, que el núcleo va en editable solo en su propio
   entorno, y dónde está la guía para montar la suite entera. Solo documentación.
+- `tests/test_dxf_reader_v144.py`: el dibujo de prueba va en una carpeta propia que crea
+  `tempfile.mkdtemp()` al importar el archivo, y los dos tests de errores usan su `tmp_path`, que
+  el runner crea igual. El archivo inexistente se nombra dentro de esa carpeta nueva, y el test
+  comprueba antes que no existe. No cambia ninguna aserción y siguen los 29 casos.
 
 El código de `ogr_core` no cambia.
 
@@ -81,6 +93,11 @@ delete head branches»), que es de la propietaria.
 | El comando que el guion saca de la tabla para OGR Slip2D, contra este núcleo y su fijación | modo de desarrollo: `QT_QPA_PLATFORM=offscreen` en el entorno y `tests/_runner.py --jobs 4 --dev-core` |
 | Suite del núcleo, con `--jobs 4` (Windows) | 796 de 796, sin fugas |
 | Suite del núcleo en un clon nuevo, con un `.venv` nuevo de Python 3.14.7 y las dependencias de hoy (Windows, en serie; el ensayo de `DESARROLLO.md`) | 796 de 796, código 0 |
+| Suite del núcleo en el PC nuevo, sin `C:\tmp` y con el test de antes (2026-11-22, la puesta en marcha) | 774 de 796: los 22 fallos, de `test_dxf_reader_v144.py` y todos `FileNotFoundError` |
+| Suite entera con `--jobs 4` y con el test de antes, con `C:\tmp` creada: fecha de `C:\tmp\ogr_test_model.dxf` y `C:\tmp\ogr_not_a_dxf.txt` | 796 de 796, sin fugas; los dos archivos pasan de las 14:44 a las 16:32, la hora de la corrida |
+| Suite entera con `--jobs 4` y con el test nuevo: las mismas dos fechas | 796 de 796, sin fugas; las dos siguen en las 16:32 |
+| Los 29 casos de `test_dxf_reader_v144.py`, en esa corrida | 29 de 29 |
+| Rutas `/tmp` en el archivo (grep) | solo en el comentario que cuenta por qué ya no la usa |
 
 **Sin medir desde aquí**: la suite de OGR Slip2D en Linux con `--jobs 4` y con `--dev-core`. Su
 propia CI la corre en un proceso y contra la etiqueta, y tarda entre 25 y 40 minutos por trabajo.
@@ -89,6 +106,9 @@ La primera vez que corre así es en la CI de la PR que añade el trabajo.
 ## 4. Queda abierto
 
 - Que GitHub borre la rama al fusionar, y la protección de `main`: ajustes de la propietaria.
+- OGR Slip2D tiene tests que escriben en `/tmp` (en `C:\tmp`, los archivos `ogr_clean.dxf`,
+  `ogr_export_test.dxf`, `ogr_import_test.dxf` y `ogr_problems.dxf`). Es suyo y lo arregla su
+  sesión; hasta entonces, `C:\tmp` no se borra.
 - De antes siguen: si la corrida de la CI vale como regla 8 para OGR FEM2D, la regla única de «el
   núcleo no está copiado en el árbol del programa», y `matplotlib` sin declarar en
   `ogr_core/report`.
