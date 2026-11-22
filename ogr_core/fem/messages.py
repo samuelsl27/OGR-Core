@@ -97,3 +97,81 @@ def seepage_note(code: str, **args) -> Coded:
     code and the values."""
     return coded(SEEPAGE_NOTES, code, **args)
 
+
+# ----------------------------------------------------------------------
+# v0.2.5 -- what the quality triangulation (``refine``) says about its
+# input, and the notes it leaves on the mesh. A table of their own, with
+# codes ``refine.*``: the programs import each catalogue by name, so a new
+# one leaves their translation tables as they are until they add it.
+
+REFINE_BAD_RATIO = "refine.bad_ratio"
+REFINE_BAD_SIZE = "refine.bad_size"
+REFINE_EMPTY = "refine.empty"
+REFINE_BAD_VERTEX = "refine.bad_vertex"
+REFINE_DUPLICATE_VERTEX = "refine.duplicate_vertex"
+REFINE_BAD_SEGMENT = "refine.bad_segment"
+REFINE_DUPLICATE_SEGMENT = "refine.duplicate_segment"
+REFINE_CROSSING_SEGMENTS = "refine.crossing_segments"
+REFINE_VERTEX_ON_SEGMENT = "refine.vertex_on_segment"
+REFINE_SEED_ON_SEGMENT = "refine.seed_on_segment"
+REFINE_VOID_ON_SEGMENT = "refine.void_on_segment"
+REFINE_SEED_OUTSIDE = "refine.seed_outside"
+REFINE_VOID_OUTSIDE = "refine.void_outside"
+REFINE_SEEDS_SHARE_REGION = "refine.seeds_share_region"
+REFINE_REGION_WITHOUT_SEED = "refine.region_without_seed"
+REFINE_VERTEX_OUTSIDE = "refine.vertex_outside"
+REFINE_TOO_MANY_TRIANGLES = "refine.too_many_triangles"
+
+REFINE_MESSAGES = {s.code: s for s in (
+    MessageSpec(REFINE_BAD_RATIO,
+                "the quality bound B = {ratio:.6g} is below sqrt(2) = 1.41421: "
+                "Delaunay refinement is guaranteed to finish only for "
+                "B >= sqrt(2)"),
+    MessageSpec(REFINE_BAD_SIZE,
+                "the size bound at ({x:.6g}, {y:.6g}) is {h}: it must be a "
+                "positive length, or infinity where there is no bound"),
+    MessageSpec(REFINE_EMPTY,
+                "nothing to mesh: the input needs at least three vertices, "
+                "one segment and one seed"),
+    MessageSpec(REFINE_BAD_VERTEX,
+                "vertex {i} is not a point of two finite coordinates"),
+    MessageSpec(REFINE_DUPLICATE_VERTEX,
+                "vertices {i} and {j} are the same point ({x:.6g}, {y:.6g})"),
+    MessageSpec(REFINE_BAD_SEGMENT,
+                "segment {k} does not join two different input vertices "
+                "({u} and {v})"),
+    MessageSpec(REFINE_DUPLICATE_SEGMENT,
+                "segments {k} and {j} join the same two vertices"),
+    MessageSpec(REFINE_CROSSING_SEGMENTS,
+                "segments {k} and {j} cross or overlap"),
+    MessageSpec(REFINE_VERTEX_ON_SEGMENT,
+                "vertex {i} lies inside segment {k}"),
+    MessageSpec(REFINE_SEED_ON_SEGMENT,
+                "the seed of region {region} at ({x:.6g}, {y:.6g}) lies on a "
+                "segment or on a vertex"),
+    MessageSpec(REFINE_VOID_ON_SEGMENT,
+                "the void point ({x:.6g}, {y:.6g}) lies on a segment or on a "
+                "vertex"),
+    MessageSpec(REFINE_SEED_OUTSIDE,
+                "the seed of region {region} at ({x:.6g}, {y:.6g}) is outside "
+                "the domain or in a void"),
+    MessageSpec(REFINE_VOID_OUTSIDE,
+                "the void point ({x:.6g}, {y:.6g}) is outside the domain"),
+    MessageSpec(REFINE_SEEDS_SHARE_REGION,
+                "the seeds of regions {first} and {second} are in the same "
+                "region: no segments separate them"),
+    MessageSpec(REFINE_REGION_WITHOUT_SEED,
+                "a part of the domain bounded by segments has no seed; one of "
+                "its points is ({x:.6g}, {y:.6g})"),
+    MessageSpec(REFINE_VERTEX_OUTSIDE,
+                "vertex {i} at ({x:.6g}, {y:.6g}) is outside the domain or in "
+                "a void"),
+    MessageSpec(REFINE_TOO_MANY_TRIANGLES,
+                "the mesh reached {limit} triangles before it was finished: "
+                "raise the limit, or relax the size bound"),
+)}
+
+
+def refine_note(code: str, **args) -> Coded:
+    """The message ``code`` of the quality triangulation with ``args``."""
+    return coded(REFINE_MESSAGES, code, **args)
