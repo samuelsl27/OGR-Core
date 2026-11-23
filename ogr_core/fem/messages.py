@@ -123,6 +123,16 @@ REFINE_VERTEX_OUTSIDE = "refine.vertex_outside"
 REFINE_TOO_MANY_TRIANGLES = "refine.too_many_triangles"
 REFINE_LENGTH_UNIT = "refine.length_unit"
 REFINE_TOO_FINE = "refine.too_fine"
+# v0.2.6 -- the arcs
+REFINE_BAD_ARC = "refine.bad_arc"
+REFINE_ARC_RADII = "refine.arc_radii"
+REFINE_ARC_TURN = "refine.arc_turn"
+REFINE_VERTEX_IN_ARC = "refine.vertex_in_arc"
+REFINE_SEED_IN_ARC = "refine.seed_in_arc"
+REFINE_VOID_IN_ARC = "refine.void_in_arc"
+REFINE_SEGMENT_IN_ARC = "refine.segment_in_arc"
+REFINE_ARC_UNPROVEN = "refine.arc_unproven"
+REFINE_INTERNAL = "refine.internal"
 
 REFINE_MESSAGES = {s.code: s for s in (
     MessageSpec(REFINE_BAD_RATIO,
@@ -174,6 +184,35 @@ REFINE_MESSAGES = {s.code: s for s in (
     MessageSpec(REFINE_TOO_FINE,
                 "the refinement made edges too short for the floating-point "
                 "coordinates near ({x:.6g}, {y:.6g}) and cannot go on"),
+    MessageSpec(REFINE_BAD_ARC,
+                "the centre of the arc of segment {k} is not a point of two "
+                "finite coordinates"),
+    MessageSpec(REFINE_ARC_RADII,
+                "the ends of segment {k} are at {r1:.9g} and {r2:.9g} from the "
+                "centre of its arc: they must be at the same distance"),
+    MessageSpec(REFINE_ARC_TURN,
+                "the arc of segment {k} turns {angle:.6g} degrees: at most 60; "
+                "split it into pieces"),
+    MessageSpec(REFINE_VERTEX_IN_ARC,
+                "vertex {i} lies between segment {k} and its arc"),
+    MessageSpec(REFINE_SEED_IN_ARC,
+                "the seed of region {region} at ({x:.6g}, {y:.6g}) lies "
+                "between segment {k} and its arc"),
+    MessageSpec(REFINE_VOID_IN_ARC,
+                "the void point ({x:.6g}, {y:.6g}) lies between segment {k} "
+                "and its arc"),
+    MessageSpec(REFINE_SEGMENT_IN_ARC,
+                "segment {j} enters the arc of segment {k}: between the arc "
+                "and its chord, or across the arc"),
+    MessageSpec(REFINE_INTERNAL,
+                "an internal check of the mesher failed near ({x:.6g}, "
+                "{y:.6g}); no mesh is returned. Please report it"),
+    MessageSpec(REFINE_ARC_UNPROVEN,
+                "the input has arcs. Pav and Walkington prove that their "
+                "algorithm ends, with arc pieces that turn up to {turn:.3g} "
+                "degrees, for B > {ratio:.4g}. This mesher is not exactly "
+                "that algorithm (concentric shells, the Terminator), and no "
+                "source proves that it ends with arcs"),
     MessageSpec(REFINE_LENGTH_UNIT,
                 "next to a vertex where two segments meet, the mesh splits the "
                 "segments at distances that are powers of two of the unit of "
