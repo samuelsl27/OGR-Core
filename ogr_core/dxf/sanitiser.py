@@ -180,7 +180,13 @@ def douglas_peucker(points, tol):
 
 # ======================================================================
 class GeometrySanitiser:
-    """Turns raw DXF polylines into geometry that closes into regions."""
+    """Turns raw DXF polylines into geometry that closes into regions.
+
+    It works on flattened polylines. A :class:`DxfPolyline` read with
+    ``keep_arcs=True`` loses its ``arcs`` here, because welding,
+    splitting and simplifying move and remove vertices. Read the drawing
+    flattened (the default) to sanitise it.
+    """
 
     def __init__(self, diagonal: float, weld_pct: float = DEFAULT_WELD_PCT,
                  simplify_pct: float = DEFAULT_SIMPLIFY_PCT,
