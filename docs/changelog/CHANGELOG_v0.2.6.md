@@ -1,7 +1,10 @@
 # OGR Core v0.2.6
 
-> **En curso.** `main` dice `0.2.6.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
+**Los contornos curvos en el mallador de calidad.** Un segmento de `PSLG.arcs` es un arco de
+circunferencia, y `quality_triangulation` parte sus tramos sobre el arco, no sobre su cuerda (Pav
+y Walkington). Lo recto sigue como en la 0.2.5, bit a bit. Es compatible: ningún programa tiene
+que cambiar nada, pero un PSLG que trae arcos da otra malla. **Con arcos, que el refinado termine
+no lo prueba ninguna fuente**, y las notas de la malla lo dicen.
 
 Lo pide OGR FEM2D (decisión D14 de su spec 003, segunda petición del 2026-11-22): que el mallador
 de calidad parta los tramos de arco **sobre el arco**, no sobre su cuerda. Su plan era llevar al
@@ -124,8 +127,40 @@ Tiempos, en este PC (Windows, Python 3.14.10), sin otra corrida en la máquina, 
 En ninguna de estas mallas, todas con B = √2, queda un triángulo por encima de B, ni se invierte
 ninguno. Es lo medido, no una garantía.
 
+**La regla 8, sobre el commit `8d82193`** (`main` con la PR 22, el árbol en `0.2.6.dev0` y todo
+lo de esta versión). El 2026-11-23, en Windows, las dos a la vez y sin otra corrida de esos
+programas en la máquina.
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `cc6c2c0` (su v0.1.483) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7558 casos: 7556 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.6.dev0 … @ 8d82193`, `DEV CORE` antes y después |
+| OGR FEM2D `d56d673` (su D15, los arcos en tramos de 10°) **entera** contra ese commit, con `--dev-core` | 308 de 308, ninguna fuga, código 0. `shared: ogr_core 0.2.6.dev0 … @ 8d82193`, `DEV CORE` antes y después |
+| CI de la PR 22 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR y `pins` |
+
+Los dos saltados de OGR Slip2D son de la plataforma: `test_on_posix_the_caller_survives`
+(`os.killpg` es de POSIX), el de la 0.2.4 y la 0.2.5, y `test_no_setter_takes_a_reference_from_none`,
+nuevo en su v0.1.483, que solo mide en Python 3.11 (en 3.14 `None` es inmortal). Los dos árboles
+estaban limpios: lo corrido es lo guardado.
+
+**Una primera corrida se paró y no cuenta.** Mientras corría, el número de la versión se puso unos
+segundos en el árbol que las dos importaban; un test que arrancara en ese momento habría visto
+`0.2.6` en vez de `0.2.6.dev0`. Se pararon las dos, se devolvió el árbol a `8d82193` y se
+lanzaron de nuevo; el número se puso después en otro `git worktree`.
+
+El `TestD14Pending` de OGR FEM2D, que su sesión esperaba que fallase con la 0.2.6, pasa: comprueba
+que se añaden vértices en los tramos de arco, y se siguen añadiendo, ahora sobre el arco.
+
+### Sin probar
+
+- **Los programas contra la versión con su número final**, a mano: lo de arriba es contra
+  `0.2.6.dev0`. El commit que pone `0.2.6` solo cambia el número y los documentos, y la CI de su
+  PR corre los dos programas contra él.
+
 ## 4. Queda abierto
 
-- La regla 8 y la etiqueta de la 0.2.6.
 - El escrito de vuelta para OGR FEM2D con la API cerrada (las notas se llaman distinto de lo que
   se le propuso: `arc_bound` con `met`, y `arc_unproven` en vez de `arc_guarantee`).
+- **Que el mallador termine con arcos.** No lo prueba ninguna fuente; las notas lo dicen
+  (`arc_unproven`). Con tramos de 10°, que es lo que OGR FEM2D ha decidido (su D15), el
+  corolario 3 solo garantiza su algoritmo para B > 1.76, así que con B = √2 `arc_bound.met` es
+  falso.
