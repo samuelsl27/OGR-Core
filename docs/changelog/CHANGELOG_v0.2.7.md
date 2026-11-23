@@ -116,7 +116,23 @@ Los mutantes, y el número de tests que falla con cada uno:
 | El bulge horario barrido en sentido antihorario | 2 |
 | Una vuelta entera que no acaba en su primer punto | 1 |
 
-**La regla 8**: pendiente; se anota aquí con lo que salga.
+**La regla 8, sobre el commit `5ec7d97`** (la rama `dxf-arcos`, el árbol en `0.2.7.dev0`). El
+2026-11-23, en Windows, las dos a la vez y sin otra corrida de esos programas en la máquina. Una
+sesión de OGR Slip2D corría a la vez unas sondas suyas (no su suite).
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `2cb7efd` **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7577 casos: 7575 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.7.dev0 … @ 5ec7d97`, `DEV CORE` antes y después |
+| OGR FEM2D `2aab19c` (su v0.0.9) **entera** contra ese commit, con `--dev-core` | 493 de 493, ninguna fuga, código 0. `shared: ogr_core 0.2.7.dev0 … @ 5ec7d97`, `DEV CORE` antes y después |
+
+Los dos saltados de OGR Slip2D son de la plataforma, los mismos de la 0.2.6:
+`test_no_setter_takes_a_reference_from_none` (en 3.14 `None` es inmortal) y
+`test_on_posix_the_caller_survives` (`os.killpg` es de POSIX).
+
+### Sin probar
+
+- **Los programas contra la versión con su número final**: lo de arriba es contra `0.2.7.dev0`.
+  El commit que pone `0.2.7` solo cambia el número y los documentos.
 
 ## 4. Queda abierto
 
