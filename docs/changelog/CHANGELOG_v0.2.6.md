@@ -75,6 +75,8 @@ no sirve: los triángulos finos pegados a la cuerda se dan la vuelta cuando la f
 - `ogr_core/fem/messages.py`: códigos `refine.bad_arc`, `refine.arc_radii`, `refine.arc_turn`,
   `refine.vertex_in_arc`, `refine.seed_in_arc`, `refine.void_in_arc`, `refine.segment_in_arc`,
   `refine.internal` y la nota `refine.arc_unproven`.
+- `docs/consumidores.md`: OGR FEM2D fija `v0.2.5` desde su `702a618`, después de su v0.0.8
+  (PR 23). Al subirla, el trabajo `pins` de la CI se puso en rojo en la PR 22, como debe.
 - **Sin arcos, la malla no cambia**: la huella de la 0.2.5 sigue igual, y un PSLG con `arcs`
   vacío, con etiquetas que no tiene ningún segmento o sin el atributo da la misma malla bit a bit.
 
