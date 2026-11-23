@@ -9,7 +9,7 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 | Programa | Repositorio | Núcleo que fija | Desde | Suite entera |
 |---|---|---|---|---|
 | OGR Slip2D | `samuelsl27/OGR-Slip2D` | `v0.2.2` | su v0.1.475 | `QT_QPA_PLATFORM=offscreen python tests/_runner.py --jobs 4` |
-| OGR FEM2D | `samuelsl27/OGR-FEM2D` | `v0.2.3` | su v0.0.7 | `python tests/_runner.py` |
+| OGR FEM2D | `samuelsl27/OGR-FEM2D` | `v0.2.5` | su `702a618` (después de su v0.0.8) | `python tests/_runner.py` |
 
 - **La verdad es el `pyproject.toml` de cada programa** (`ogr-core @ git+…@vX.Y.Z`). Esta tabla la
   repite para que se vea de un vistazo quién se queda atrás, y se corrige aquí cuando un programa
