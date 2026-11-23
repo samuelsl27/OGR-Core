@@ -36,7 +36,6 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 |---|---|---|
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
-| Los contornos curvos en `quality_triangulation`: un tramo de arco se parte sobre el arco (petición D14, 2026-11-22) | OGR FEM2D | Variante decidida por la propietaria el 2026-11-23: el mallador de la 0.2.5 para lo recto, y el punto medio del arco (Pav y Walkington). Va en la 0.2.6; el plan, pendiente de su OK |
 | Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí en la v0.2.3, en sus tests. OGR FEM2D lo arregló en su v0.0.5 (`a4965b7`). OGR Slip2D usa el mismo patrón y hoy no tiene ningún `.py` oculto: pendiente |
 
 Una fila sale de aquí cuando el cambio está en una versión etiquetada: desde entonces lo cuenta
