@@ -1,7 +1,11 @@
 # OGR Core v0.2.5
 
-> **En curso.** `main` dice `0.2.5.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
+**Un mallador de calidad, con su garantía, y las dos medidas exactas de calidad de un
+triángulo.** `ogr_core.fem.refine.quality_triangulation` malla un PSLG con el refinado de Delaunay
+de Ruppert en la versión de Shewchuk (2002a): §3.1, las capas concéntricas de §6.2 y el Terminator
+de §6.3. Da la misma malla, bit a bit, en Windows y en Linux. `ogr_core.fem.mesh` trae las medidas
+de Shewchuk (2002b). Es compatible: `generate_mesh` no cambia, y ningún programa tiene que cambiar
+nada.
 
 Lo pide OGR FEM2D (decisión D2 de su spec 003, petición del 2026-11-22): un mallador de calidad,
 el refinado de Delaunay de Ruppert en la versión de Shewchuk (2002a), y las dos medidas exactas
@@ -150,6 +154,12 @@ filtración de OGR Slip2D lo necesita igual. `generate_mesh` no cambia.
 Nada. OGR FEM2D puede usar las medidas nuevas y `quality_triangulation`. Para traducir los
 mensajes del mallador, cada programa añade `REFINE_MESSAGES` a su tabla cuando lo use.
 
+**Aviso para la versión siguiente (regla 9).** En esta versión, un `arcs` del PSLG (el de OGR
+FEM2D: etiqueta → centro) **se ignora**: un tramo de arco se parte por el punto medio de su
+cuerda, como un segmento. La versión que lea los arcos (prevista para la 0.2.6, abajo) partirá
+esos tramos sobre el arco, y el mismo PSLG con arcos dará otra malla. Un PSLG sin arcos seguirá
+dando la misma.
+
 ## 3. Pruebas
 
 | Qué | Resultado |
@@ -165,6 +175,29 @@ mensajes del mallador, cada programa añade `REFINE_MESSAGES` a su tabla cuando 
 | Suite del núcleo entera, `--jobs 4` (Windows), con las medidas | 804 de 804, sin fugas |
 | Suite del núcleo entera, `--jobs 4` (Windows), con §3.1 | 820 de 820, sin fugas |
 | Suite del núcleo entera, `--jobs 4` (Windows), con las capas y el Terminator | 832 de 832, sin fugas |
+
+**La regla 8, sobre el commit `f2f7b99`** (`main` con la PR 19, el árbol en `0.2.5.dev0` y todo
+lo de esta versión). El 2026-11-23, en Windows, las dos a la vez y sin otra corrida de esos
+programas en la máquina.
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `ef9bf12` (su v0.1.482) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7554 casos: 7553 pasan, 0 fallos, 1 saltado, ninguna fuga, código 0. `shared: ogr_core 0.2.5.dev0 … @ f2f7b99`, `DEV CORE` antes y después |
+| OGR FEM2D `32a34b3` (su `main`) **entera** contra ese commit, con `--dev-core` | 293 de 293, ninguna fuga, código 0. `shared: ogr_core 0.2.5.dev0 … @ f2f7b99`, `DEV CORE` antes y después |
+| CI de la PR 19 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR y `pins` |
+
+El saltado de OGR Slip2D es el mismo de la 0.2.4: `test_on_posix_the_caller_survives`, que solo
+corre en POSIX (`os.killpg`).
+
+**El árbol de OGR FEM2D tenía cambios sin guardar** en tres archivos (`ogr_fem2d/mesh/checks.py`,
+`discretize.py` y `geometry.py`), el trabajo en curso de su sesión: su corrida midió `32a34b3`
+con ellos. Lo que tiene guardado, `32a34b3` sin más, lo corre la CI de la PR de esta versión.
+
+### Sin probar
+
+- **Los programas contra la versión con su número final**, a mano: lo de arriba es contra
+  `0.2.5.dev0`. El commit que pone `0.2.5` solo cambia el número y los documentos, y la CI de su
+  PR corre los dos programas contra él.
 
 Tiempos del mallador, en este PC (Windows, Python 3.14.10), sin otra corrida en la máquina, el
 mejor de tres:
@@ -194,4 +227,13 @@ FEM2D el 2026-11-22).
 
 - Que OGR Slip2D use `quality_triangulation` para su filtración: decisión de su sesión y de la
   propietaria. `generate_mesh` sigue como estaba.
-- La regla 8 y la etiqueta de la 0.2.5.
+- **Los contornos curvos**: la segunda petición de OGR FEM2D (su decisión D14, 2026-11-22),
+  partir los tramos de arco sobre el arco, según Pav y Walkington («Delaunay refinement by corner
+  lopping», hacia 2005). Leído entero aquí: ninguna variante tiene prueba de que termine con
+  B = √2 si hay arcos. Su corolario 3 (pág. 13) la da para un ángulo mínimo
+  κ < arcsin(1/(2μ√2)) ∧ arcsin(1/(2ζη)), con η, μ (pág. 6) y ζ (pág. 8) en función de τ, el
+  giro de la tangente de cada tramo: con tramos de 60°, κ < 3.98° (B > 7.2); con 10°,
+  κ < 16.5° (B > 1.76); 20.7° solo en el límite τ → 0 (pág. 14). La propietaria eligió
+  (2026-11-23) mantener este mallador para los segmentos rectos y partir los tramos de arco por
+  el punto medio del arco (§3 y corolarios 1–2, págs. 6–7); junto a un extremo compartido, por el
+  punto del arco a la distancia de la capa, sin prueba (pág. 2). Va en la 0.2.6.
