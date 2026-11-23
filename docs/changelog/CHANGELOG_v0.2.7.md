@@ -124,6 +124,17 @@ sesión de OGR Slip2D corría a la vez unas sondas suyas (no su suite).
 |---|---|
 | OGR Slip2D `2cb7efd` **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7577 casos: 7575 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.7.dev0 … @ 5ec7d97`, `DEV CORE` antes y después |
 | OGR FEM2D `2aab19c` (su v0.0.9) **entera** contra ese commit, con `--dev-core` | 493 de 493, ninguna fuga, código 0. `shared: ogr_core 0.2.7.dev0 … @ 5ec7d97`, `DEV CORE` antes y después |
+| CI de la PR 27 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR y `pins` (abajo, el de OGR FEM2D) |
+
+`main` con la PR 27 (`9361ef9`) tiene el mismo `ogr_core` que `5ec7d97`: lo único que va después
+es este changelog, y `main` no tenía nada nuevo cuando se fusionó.
+
+**El trabajo de OGR FEM2D en la CI de la PR 27 falló una vez, y no por este cambio.** Contra su
+`2aab19c`, en Linux con Python 3.11, falló uno de 493: `test_built_again_the_same_model`. El test
+comparaba bit a bit las notas de la malla del caso 005, y sus ángulos salen de `math.acos`, que en
+otro sistema puede redondear distinta la última cifra que en el 3.14 que escribió el archivo. Su
+sesión lo vio en su propia CI y lo arregló en su `5dd480d`, que compara las notas a redondeo. Se
+relanzó el trabajo, que lee la rama principal del programa, y pasó: 493 de 493 contra `5dd480d`.
 
 Los dos saltados de OGR Slip2D son de la plataforma, los mismos de la 0.2.6:
 `test_no_setter_takes_a_reference_from_none` (en 3.14 `None` es inmortal) y
@@ -132,7 +143,8 @@ Los dos saltados de OGR Slip2D son de la plataforma, los mismos de la 0.2.6:
 ### Sin probar
 
 - **Los programas contra la versión con su número final**: lo de arriba es contra `0.2.7.dev0`.
-  El commit que pone `0.2.7` solo cambia el número y los documentos.
+  El commit que pone `0.2.7` solo cambia el número y los documentos, y la CI de su PR corre los
+  dos programas contra él.
 
 ## 4. Queda abierto
 
