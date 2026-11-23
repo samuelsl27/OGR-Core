@@ -17,6 +17,12 @@ Sources (page numbers are those printed on the preprints):
   2-dimensional mesh generation". J. Algorithms 18(3), 548-585: starting
   from an unconstrained Delaunay triangulation and recovering the missing
   segments by splitting them at their midpoints.
+* Pav, S. E. and Walkington, N. J. "Delaunay refinement by corner
+  lopping" (International Meshing Roundtable, about 2005): curved input
+  (v0.2.6). Pieces of at most pi/3 of turn, p. 4; encroachment by the
+  diametral circle of the chord and the split point on the curve, section
+  3, p. 6; Lemma 1 and Corollaries 1 and 2, pp. 6-7; Lemma 2, p. 8;
+  Corollary 3, p. 13.
 
 ``generate_mesh`` (``generator.py``) is NOT this: it stays as it was, so
 that OGR Slip2D meshes as before, bit for bit.
@@ -71,6 +77,44 @@ What it does
    input angle (Theorem 12); with no input angle of 60 degrees or less it
    never declines, and every triangle is within B. The notes say phi, that
    bound, and which triangles are left above B, and where.
+
+Arcs (v0.2.6)
+-------------
+A segment whose label is in ``PSLG.arcs`` is the minor arc, of at most 60
+degrees, between its ends around the centre given there (asked for by OGR
+FEM2D, decision D14 of its spec 003). The owner chose (2026-11-23) to keep
+everything above for straight segments and to split the pieces of an arc
+on the arc:
+
+* **Encroachment** is by the diametral circle of the chord (Pav and
+  Walkington, p. 6); the triangles stay straight, and the boundary of the
+  mesh is the chords of the final pieces.
+* **The split point** is on the arc: where it meets the bisector of the
+  chord (Corollaries 1 and 2, p. 7), or, next to a shared input vertex, at
+  the distance of the shell, measured from that vertex as on a segment.
+* **The input angles** at a vertex where an arc ends are measured on its
+  tangent there: the clusters of the Terminator, phi and the bound of
+  Theorem 12.
+* **The insertion** of a vertex off its chord (``insert_off``): the region
+  between a chord and its arc holds no vertex, so the cavity always takes
+  the triangle on the vertex's side; the chord is kept as an ordinary edge
+  where the triangle across it does not hold the vertex in its
+  circumcircle; every new triangle is checked counterclockwise in exact
+  arithmetic.
+* **The input** is checked with the arc, not with the chord: no vertex,
+  seed or void between a chord and its arc, and no other segment or arc
+  entering that region.
+
+**What is not proven.** Pav and Walkington prove that THEIR algorithm ends
+with curves for B > 1/(2 sin kappa), kappa their Corollary 3 (p. 13):
+B > 7.2 with pieces of 60 degrees, B > 1.76 with pieces of 10, and
+sqrt 2 only as the turn tends to 0 (p. 14); the notes give that bound for
+the input (``arc_bound``). This mesher is not exactly their algorithm: the
+shells and the Terminator on arcs come from no source (the shells rest on
+powers of two, which "do not generalize naturally" to curves, p. 2). No
+source proves that it ends with arcs, and the notes say so
+(``arc_unproven``). If it does not end, it stops with ``refine.too_fine``
+or ``refine.too_many_triangles``.
 
 Choices the source leaves open, fixed here
 ------------------------------------------
@@ -179,14 +223,19 @@ class PSLG:
       region; the elements of that region carry its ``region`` as
       ``region_index`` and its ``material`` as ``material_id``.
     * ``voids``: points inside the holes, which are not meshed.
+    * ``arcs`` (v0.2.6): label -> centre (x, y). A segment whose label is
+      here is the minor arc between its u and v around that centre, which
+      may turn 60 degrees at most (Pav and Walkington, p. 4): it is split
+      on the arc, and every vertex of its chain lies on the arc.
 
-    Any object with these four attributes will do (OGR FEM2D passes its
-    own).
+    Any object with these attributes will do (OGR FEM2D passes its own);
+    without ``arcs``, every segment is straight.
     """
     vertices: Sequence = ()
     segments: Sequence = ()
     seeds: Sequence = ()
     voids: Sequence = ()
+    arcs: Any = field(default_factory=dict)
 
 
 @dataclass
@@ -457,7 +506,73 @@ class _Triangulation:
     def insert(self, q, cav, through=None) -> list:
         """Replace the cavity by the fan from vertex q; returns the new
         triangles. With ``through``, q splits that subsegment in two."""
-        bnd = self.boundary(cav, through)
+        new = self._fan(q, cav, self.boundary(cav, through))
+        if through is not None:
+            seg = self.sub.pop(through)
+            self.sub[_key(through[0], q)] = seg
+            self.sub[_key(q, through[1])] = seg
+        return new
+
+    def insert_off(self, q, key, tris) -> list:
+        """Split subsegment ``key`` by vertex q off its chord: a vertex on
+        an arc, on the side the arc bulges to. ``tris`` are the triangles
+        of the chord. The cavity grows from the triangle on q's side, whose
+        circumcircle always holds q (the region between the chord and its
+        arc holds no vertex, so the angle there is less than the angle
+        a q b); across the chord it takes the other triangle only if its
+        circumcircle holds q too, and otherwise the chord stays as an
+        ordinary edge of a new triangle (a, b, q) that goes to the other
+        side's region. When there is nothing on one side (the exterior or
+        a void) the region between the chord and the arc goes to it. Every
+        new triangle is checked counterclockwise in exact arithmetic."""
+        a, b = key
+        pq = self.p[q]
+        side = _orient(self.p[a], self.p[b], pq)
+        mine = other = -1
+        for t in tris:
+            w = next(x for x in self.tv[t] if x != a and x != b)
+            if _orient(self.p[a], self.p[b], self.p[w]) == side:
+                mine = t
+            else:
+                other = t
+        if mine >= 0:
+            cav = self.cavity(pq, mine, through=key)
+        elif other >= 0 and _incircle(*(self.p[i] for i in self.tv[other]),
+                                      pq) > 0:
+            cav = self.cavity(pq, other, through=key)
+        else:
+            cav = []
+        inside = set(cav)
+        bnd = []
+        for t in cav:
+            for i in range(3):
+                n = self.tn[t][i]
+                if n >= 0 and n in inside:
+                    continue
+                x, y = self.edge(t, i)
+                if _key(x, y) == key:
+                    if n >= 0:              # the chord stays, on n's side
+                        bnd.append((x, y, n, n))
+                    continue
+                bnd.append((x, y, n, t))
+        if not cav:
+            i = next(i for i in range(3)
+                     if _key(*self.edge(other, i)) == key)
+            x, y = self.edge(other, i)
+            bnd = [(y, x, other, other)]
+        new = self._fan(q, cav, bnd)
+        for t in new:
+            u, v, _ = self.tv[t]
+            if _orient(self.p[u], self.p[v], pq) <= 0:
+                raise QualityMeshError(M.REFINE_INTERNAL, x=pq[0], y=pq[1])
+        seg = self.sub.pop(key)
+        self.sub[_key(a, q)] = seg
+        self.sub[_key(q, b)] = seg
+        return new
+
+    def _fan(self, q, cav, bnd) -> list:
+        """Kill the cavity and fan vertex q over its boundary ``bnd``,
+        (a, b, triangle outside or -1, triangle whose region it takes)."""
         for t in cav:
             self.alive[t] = False
             self.n_alive -= 1
@@ -478,10 +593,6 @@ class _Triangulation:
             a, b, _ = self.tv[t]
             self.tn[t][0] = starts.get(b, -1)
             self.tn[t][1] = ends.get(a, -1)
-        if through is not None:
-            seg = self.sub.pop(through)
-            self.sub[_key(through[0], q)] = seg
-            self.sub[_key(q, through[1])] = seg
         return new
 
     def has_edge(self, a, b) -> bool:
@@ -596,15 +707,161 @@ def _read(pslg):
     return pts, pairs, labels, out_seeds, voids
 
 
+def _in_disc(c, u, z) -> int:
+    """+1 if z is strictly inside the circle of centre c through u, 0 on
+    it, -1 outside; exact."""
+    zx, zy = z[0] - c[0], z[1] - c[1]
+    ux, uy = u[0] - c[0], u[1] - c[1]
+    dz, du = zx * zx + zy * zy, ux * ux + uy * uy
+    if abs(dz - du) > _FILTER * (dz + du):
+        return 1 if dz < du else -1
+    cx, cy, px, py, qx, qy = (Fraction(v) for v in (*c, *z, *u))
+    return _sign((qx - cx) ** 2 + (qy - cy) ** 2
+                 - (px - cx) ** 2 - (py - cy) ** 2)
+
+
+def _in_cap(pu, pv, c, side, z) -> bool:
+    """z in the closed region between chord uv and its arc around c (on
+    the side ``side`` of u -> v): on that side of the chord's line and in
+    the closed disc through u. The chord itself is the segment's, checked
+    elsewhere."""
+    return _orient(pu, pv, z) == side and _in_disc(c, pu, z) >= 0
+
+
+def _enters_cap(pu, pv, c, side, pa, pb) -> bool:
+    """Whether segment ab has a point in the closed disc on the arc's side
+    of chord uv, in exact arithmetic. Segment ab neither crosses the chord
+    nor has an end inside that region (checked before), so its part in the
+    disc lies on one side of the chord's line: its point nearest to c
+    tells which."""
+    cx, cy = Fraction(c[0]), Fraction(c[1])
+    ax, ay, bx, by = (Fraction(v) for v in (*pa, *pb))
+    ux, uy, vx, vy = (Fraction(v) for v in (*pu, *pv))
+    dx, dy = bx - ax, by - ay
+    A = dx * dx + dy * dy
+    B = dx * (ax - cx) + dy * (ay - cy)
+    C = (ax - cx) ** 2 + (ay - cy) ** 2 - (ux - cx) ** 2 - (uy - cy) ** 2
+    t = min(max(-B / A, Fraction(0)), Fraction(1))
+    if A * t * t + 2 * B * t + C > 0:
+        return False
+    px, py = ax + t * dx, ay + t * dy
+    return _sign((vx - ux) * (py - uy) - (vy - uy) * (px - ux)) == side
+
+
+def _arcs_cross(arc1, arc2, shared, scale) -> bool:
+    """Whether two arcs of different circles meet away from their shared
+    ends: a point of both circles on the arc's side of each chord. The two
+    points are computed in floating point (+ - * / and sqrt); one within
+    1e-9 of ``scale`` from a shared end is that end."""
+    (pu1, pv1, c1, r1, s1), (pu2, pv2, c2, r2, s2) = arc1, arc2
+    dx, dy = c2[0] - c1[0], c2[1] - c1[1]
+    d = math.sqrt(dx * dx + dy * dy)
+    if d == 0.0 or d > r1 + r2 or d < abs(r1 - r2):
+        return False
+    along = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d)
+    h = math.sqrt(max(0.0, r1 * r1 - along * along))
+    bx, by = c1[0] + along * dx / d, c1[1] + along * dy / d
+    for sgn in (1.0, -1.0):
+        x = (bx - sgn * h * dy / d, by + sgn * h * dx / d)
+        if any(_dist(x, e) <= 1e-9 * scale for e in shared):
+            continue
+        if _orient(pu1, pv1, x) == s1 and _orient(pu2, pv2, x) == s2:
+            return True
+    return False
+
+
+def _read_arcs(pslg, pts, pairs, labels, seeds, voids) -> dict:
+    """The arcs of the input, checked: input segment -> (centre, radius).
+    The radius is the distance from the centre to the segment's u."""
+    raw = getattr(pslg, "arcs", None) or {}
+    if not raw:
+        return {}
+    arcs = {}
+    for k, (u, v) in enumerate(pairs):
+        try:
+            if labels[k] not in raw:
+                continue
+        except TypeError:
+            continue
+        try:
+            c = _point(raw[labels[k]])
+        except (TypeError, ValueError, IndexError):
+            raise QualityMeshError(M.REFINE_BAD_ARC, k=k) from None
+        if not (math.isfinite(c[0]) and math.isfinite(c[1])):
+            raise QualityMeshError(M.REFINE_BAD_ARC, k=k)
+        pu, pv = pts[u], pts[v]
+        r1, r2 = _dist(pu, c), _dist(pv, c)
+        if r1 == 0.0 or abs(r1 - r2) > _TOLERANCE * max(r1, r2):
+            raise QualityMeshError(M.REFINE_ARC_RADII, k=k, r1=r1, r2=r2)
+        chord = _dist(pu, pv)
+        if chord > r1 * (1.0 + _TOLERANCE):         # more than 60 degrees
+            raise QualityMeshError(
+                M.REFINE_ARC_TURN, k=k, angle=math.degrees(
+                    2.0 * math.asin(min(1.0, 0.5 * chord / r1))))
+        arcs[k] = (c, r1)
+    # nothing between a chord and its arc, and no other segment across it
+    caps = {}
+    for k, (c, r) in arcs.items():
+        u, v = pairs[k]
+        pu, pv = pts[u], pts[v]
+        side = -_orient(pu, pv, c)
+        m = (0.5 * (pu[0] + pv[0]), 0.5 * (pu[1] + pv[1]))
+        half = 0.5 * _dist(pu, pv) * (1.0 + 1e-9)
+        box = (m[0] - half, m[0] + half, m[1] - half, m[1] + half)
+        caps[k] = (pu, pv, c, r, side, box)
+
+    def near(box, xy):
+        return box[0] <= xy[0] <= box[1] and box[2] <= xy[1] <= box[3]
+
+    def overlap(b1, b2):
+        return not (b1[1] < b2[0] or b2[1] < b1[0] or b1[3] < b2[2]
+                    or b2[3] < b1[2])
+
+    seg_box = [(min(pts[u][0], pts[v][0]), max(pts[u][0], pts[v][0]),
+                min(pts[u][1], pts[v][1]), max(pts[u][1], pts[v][1]))
+               for u, v in pairs]
+    for k, (pu, pv, c, r, side, box) in caps.items():
+        u, v = pairs[k]
+        for i, xy in enumerate(pts):
+            if i not in (u, v) and near(box, xy) and \
+                    _in_cap(pu, pv, c, side, xy):
+                raise QualityMeshError(M.REFINE_VERTEX_IN_ARC, i=i, k=k)
+        for xy, region, _material in seeds:
+            if near(box, xy) and _in_cap(pu, pv, c, side, xy):
+                raise QualityMeshError(M.REFINE_SEED_IN_ARC, region=region,
+                                       x=xy[0], y=xy[1], k=k)
+        for xy in voids:
+            if near(box, xy) and _in_cap(pu, pv, c, side, xy):
+                raise QualityMeshError(M.REFINE_VOID_IN_ARC, x=xy[0],
+                                       y=xy[1], k=k)
+        for j, (a, b) in enumerate(pairs):
+            if j == k or not overlap(box, seg_box[j]):
+                continue
+            if _enters_cap(pu, pv, c, side, pts[a], pts[b]):
+                raise QualityMeshError(M.REFINE_SEGMENT_IN_ARC, j=j, k=k)
+            if j in caps:
+                pu2, pv2, c2, r2, side2, box2 = caps[j]
+                if c2 != c or r2 != r:
+                    shared = [pts[e] for e in sorted({u, v} & {a, b})]
+                    if overlap(box, box2) and _arcs_cross(
+                            (pu, pv, c, r, side), (pu2, pv2, c2, r2, side2),
+                            shared, max(r, r2)):
+                        raise QualityMeshError(M.REFINE_SEGMENT_IN_ARC,
+                                               j=j, k=k)
+    return arcs
+
+
 # ======================================================================
 # The algorithm
 # ======================================================================
 class _Refiner:
 
     def __init__(self, pts, pairs, seeds, voids, max_ratio, size,
-                 max_triangles):
+                 max_triangles, arcs=None):
         self.n_input = len(pts)
         self.pairs = pairs
+        #: input segment -> (centre, radius) of its arc
+        self.arcs = dict(arcs or {})
         self.seeds = seeds
         self.voids = voids
         self.b2 = max_ratio * max_ratio
@@ -760,7 +1017,7 @@ class _Refiner:
             if T.has_edge(a, b):
                 T.sub[_key(a, b)] = k
                 continue
-            m = T.add_point(self.split_point(_key(a, b)))
+            m = T.add_point(self.split_point(_key(a, b), k))
             t = T.locate(T.p[m], T.vt[a])
             T.insert(m, T.cavity(T.p[m], t))
             self._check_count()
@@ -856,7 +1113,7 @@ class _Refiner:
         """An input vertex shared by two or more input segments."""
         return v < self.n_input and len(self.incident[v]) >= 2
 
-    def split_point(self, key):
+    def split_point(self, key, seg=None):
         """Where subsegment ``key`` is split. Its midpoint (section 3.1),
         unless an endpoint is an input vertex shared with another segment:
         then on the concentric circle of radius a power of two around that
@@ -865,10 +1122,15 @@ class _Refiner:
         endpoints shared, the one of the smaller index (the source: "choose
         one endpoint's shells arbitrarily"). A power of two of the unit of
         length: the mesh depends on that unit. The point is a + t (b - a),
-        so a segment on x = 0 keeps x = 0."""
+        so a segment on x = 0 keeps x = 0. On an arc, the point of the arc:
+        see ``_arc_point``."""
         T = self.T
         a, b = key
         apex = a if self._apex(a) else (b if self._apex(b) else None)
+        if seg is None:
+            seg = T.sub.get(key)
+        if seg in self.arcs:
+            return self._arc_point(seg, key, apex)
         if apex is None:
             pa, pb = T.p[a], T.p[b]
             return (pa[0] + 0.5 * (pb[0] - pa[0]),
@@ -882,6 +1144,44 @@ class _Refiner:
         shell = lo if half - lo <= hi - half else hi
         t = shell / length
         return (ps[0] + t * (pf[0] - ps[0]), ps[1] + t * (pf[1] - ps[1]))
+
+    def _arc_point(self, seg, key, apex):
+        """Where a piece of an arc is split, on the arc (Pav and Walkington,
+        section 3, p. 6). With no shared endpoint, where the arc meets the
+        perpendicular bisector of the chord, c + R (m - c) / |m - c|, m the
+        midpoint of the chord: the point of their Corollaries 1 and 2
+        (p. 7). Next to a shared input vertex s, the point of the arc at
+        the distance of the shell (section 6.2 of Shewchuk 2002a, measured
+        from s as on a segment, so the chord next to s has a power-of-two
+        length): s + (rho**2 / 2R) u + rho sqrt(1 - rho**2 / 4R**2) w, u
+        the unit vector from s to the centre and w the one across it
+        towards the other end. No source proves this one: the shells rest
+        on powers of two, which "do not generalize naturally" to curves
+        (Pav and Walkington, p. 2). Only + - * / and sqrt."""
+        T = self.T
+        (cx, cy), R = self.arcs[seg]
+        a, b = key
+        if apex is None:
+            pa, pb = T.p[a], T.p[b]
+            mx, my = (pa[0] + 0.5 * (pb[0] - pa[0]),
+                      pa[1] + 0.5 * (pb[1] - pa[1]))
+            dx, dy = mx - cx, my - cy
+            d = math.sqrt(dx * dx + dy * dy)
+            return (cx + R * (dx / d), cy + R * (dy / d))
+        far = b if apex == a else a
+        ps, pf = T.p[apex], T.p[far]
+        half = 0.5 * _dist(ps, pf)
+        _m, e = math.frexp(half)            # half = m 2**e, 0.5 <= m < 1
+        lo, hi = math.ldexp(1.0, e - 1), math.ldexp(1.0, e)
+        rho = lo if half - lo <= hi - half else hi
+        ux, uy = (cx - ps[0]) / R, (cy - ps[1]) / R
+        wx, wy = -uy, ux
+        if wx * (pf[0] - ps[0]) + wy * (pf[1] - ps[1]) < 0.0:
+            wx, wy = -wx, -wy
+        along = rho * rho / (2.0 * R)
+        across = rho * math.sqrt(max(0.0, 1.0 - rho * rho / (4.0 * R * R)))
+        return (ps[0] + along * ux + across * wx,
+                ps[1] + along * uy + across * wy)
 
     # -- the small input angles (section 6.3) -------------------------------
     def _piece(self, a, k) -> Optional[int]:
@@ -900,13 +1200,27 @@ class _Refiner:
         u, v = self.pairs[k]
         return self.T.p[v if u == a else u]
 
+    def _dir(self, a, k):
+        """The direction in which input segment k leaves vertex a: towards
+        its other end, or, for an arc, its tangent at a (perpendicular to
+        the radius, towards the other end)."""
+        pa, f = self.T.p[a], self._far(a, k)
+        if k not in self.arcs:
+            return (f[0] - pa[0], f[1] - pa[1])
+        (cx, cy), _r = self.arcs[k]
+        rx, ry = pa[0] - cx, pa[1] - cy
+        if -ry * (f[0] - pa[0]) + rx * (f[1] - pa[1]) < 0.0:
+            return (ry, -rx)
+        return (-ry, rx)
+
     def analyse_angles(self) -> None:
         """The input angles at each shared input vertex, inside the domain
         ("exterior" small angles are ignored, p. 33), and the subsegment
         clusters: the segments at a vertex joined, one to the next, by
         angles of 60 degrees or less (p. 33; figure 29). Whether an angle
         is 60 degrees or less is decided in exact arithmetic on the input
-        coordinates."""
+        coordinates. For an arc, its tangent at the vertex (v0.2.6; no
+        source covers the clusters of arcs)."""
         T = self.T
         for a in range(self.n_input):
             if not self._apex(a):
@@ -914,14 +1228,18 @@ class _Refiner:
             pa = T.p[a]
 
             def upper(k):
-                f = self._far(a, k)
-                return f[1] > pa[1] or (f[1] == pa[1] and f[0] > pa[0])
+                d = self._dir(a, k)
+                return d[1] > 0.0 or (d[1] == 0.0 and d[0] > 0.0)
 
             def ccw(k1, k2):
                 h1, h2 = upper(k1), upper(k2)
                 if h1 != h2:
                     return -1 if h1 else 1
-                return -_orient(pa, self._far(a, k1), self._far(a, k2))
+                if k1 not in self.arcs and k2 not in self.arcs:
+                    return -_orient(pa, self._far(a, k1), self._far(a, k2))
+                d1, d2 = self._dir(a, k1), self._dir(a, k2)
+                x1, y1, x2, y2 = (Fraction(c) for c in (*d1, *d2))
+                return -_sign(x1 * y2 - y1 * x2)
             ring = sorted(self.incident[a], key=functools.cmp_to_key(ccw))
             n = len(ring)
             owner = {k: k for k in ring}
@@ -938,9 +1256,7 @@ class _Refiner:
                              for t in T.around(a))
                 if not inside:
                     continue
-                f1, f2 = self._far(a, k1), self._far(a, k2)
-                d1 = (f1[0] - pa[0], f1[1] - pa[1])
-                d2 = (f2[0] - pa[0], f2[1] - pa[1])
+                d1, d2 = self._dir(a, k1), self._dir(a, k2)
                 cross = d1[0] * d2[1] - d1[1] * d2[0]
                 dot = d1[0] * d2[0] + d1[1] * d2[1]
                 angle = math.degrees(math.atan2(cross, dot)) % 360.0
@@ -1048,13 +1364,21 @@ class _Refiner:
                     if w not in key and _in_diametral_circle(pa, pb, T.p[w])]
             if min(_dist(xy, pa), _dist(xy, pb)) < self.shortest:
                 self._too_fine(xy)
+            arc = self.arcs.get(T.sub[key])
+            if arc is not None and _orient(pa, pb, xy) != -_orient(
+                    pa, pb, arc[0]):
+                # the arc is its chord in floating point here
+                self._too_fine(xy)
             v = T.add_point(xy)
             # p. 13: the distance to the nearest encroaching mesh vertex,
             # or the radius of the diametral circle if only a rejected
             # circumcentre encroached
             self.r[v] = min(near) if near else 0.5 * _dist(pa, pb)
-            new = T.insert(v, T.cavity(T.p[v], tris[0], through=key),
-                           through=key)
+            if arc is not None:
+                new = T.insert_off(v, key, tris)
+            else:
+                new = T.insert(v, T.cavity(T.p[v], tris[0], through=key),
+                               through=key)
             self._check_count()
             self._new_vertex(v, new)
             for half in (_key(key[0], v), _key(v, key[1])):
@@ -1126,6 +1450,33 @@ class _Refiner:
                 given_up.add(t)
 
     # -- the result --------------------------------------------------------
+    def _arc_notes(self) -> dict:
+        """The arcs: how many input pieces, the largest turn tau, and the
+        bound of Pav and Walkington's Corollary 3 (p. 13) for that tau:
+        their algorithm ends for an angle bound kappa < arcsin(1/(2 mu
+        sqrt 2)) and arcsin(1/(2 zeta eta)), with eta, mu (p. 6) and zeta
+        (Lemma 2, p. 8) functions of tau; as a ratio, B > 1/(2 sin kappa).
+        Notes only (sin, tan): nothing is decided with them."""
+        if not self.arcs:
+            return {"arc_pieces": 0, "arc_turn": None, "arc_bound": None,
+                    "arc_unproven": None}
+        T = self.T
+        tau = 0.0
+        for k, (_c, r) in self.arcs.items():
+            u, v = self.pairs[k]
+            chord = _dist(T.p[u], T.p[v])
+            tau = max(tau, 2.0 * math.asin(min(1.0, 0.5 * chord / r)))
+        kappa, ratio = arc_bound(tau)
+        return {
+            "arc_pieces": len(self.arcs),
+            "arc_turn": math.degrees(tau),
+            "arc_bound": {"kappa": math.degrees(kappa), "ratio": ratio,
+                          "met": math.sqrt(self.b2) > ratio},
+            "arc_unproven": M.refine_note(M.REFINE_ARC_UNPROVEN,
+                                          turn=math.degrees(tau),
+                                          ratio=ratio),
+        }
+
     def result(self, labels) -> QualityTriangulation:
         T = self.T
         skip = set(self.enclosing)
@@ -1184,10 +1535,31 @@ class _Refiner:
             "length_unit": M.refine_note(M.REFINE_LENGTH_UNIT),
             "declined_splits": self.declined,
         }
+        notes.update(self._arc_notes())
         mesh = Mesh(nodes=nodes, elements=elements)
         mesh.notes["quality_triangulation"] = notes
         return QualityTriangulation(mesh=mesh, segment_vertices=chains,
                                     segment_labels=list(labels), notes=notes)
+
+
+def arc_bound(tau: float) -> tuple:
+    """(kappa, B) of Pav and Walkington's Corollary 3 (p. 13) for curve
+    pieces whose tangent turns at most ``tau`` radians: their algorithm
+    ends if its angle bound is below kappa = min(arcsin(1/(2 mu sqrt 2)),
+    arcsin(1/(2 zeta eta))), that is, for B > 1/(2 sin kappa). eta =
+    (1 + tan(tau/2)) / (1 - tan(tau/2)) and mu = 1 / (1 - tan(tau/2))
+    (p. 6); zeta = sqrt 2 sin(tau/2) / (sqrt(1 + sin tau) - 1) (Lemma 2,
+    p. 8), which tends to sqrt 2 as tau tends to 0."""
+    h = math.tan(0.5 * tau)
+    eta, mu = (1.0 + h) / (1.0 - h), 1.0 / (1.0 - h)
+    if tau > 0.0:
+        zeta = (math.sqrt(2.0) * math.sin(0.5 * tau)
+                / (math.sqrt(1.0 + math.sin(tau)) - 1.0))
+    else:
+        zeta = math.sqrt(2.0)
+    kappa = min(math.asin(1.0 / (2.0 * mu * math.sqrt(2.0))),
+                math.asin(1.0 / (2.0 * zeta * eta)))
+    return kappa, 1.0 / (2.0 * math.sin(kappa))
 
 
 def quality_triangulation(pslg, *, max_ratio: float = MIN_RATIO,
@@ -1206,6 +1578,10 @@ def quality_triangulation(pslg, *, max_ratio: float = MIN_RATIO,
     triangle by 1 / (sqrt 2 sin(phi / 2)), phi the smallest input angle
     (Theorem 12), and the notes list those left above B. ``max_triangles``
     stops a mesh that would grow beyond it, with a ``QualityMeshError``.
+
+    The pieces of an arc (``PSLG.arcs``) are split on the arc; with arcs,
+    no source proves that the refinement ends (see the module's notes on
+    arcs, and ``arc_bound``/``arc_unproven`` in the notes).
     """
     try:
         b = float(max_ratio)
@@ -1214,7 +1590,9 @@ def quality_triangulation(pslg, *, max_ratio: float = MIN_RATIO,
     if not (math.isfinite(b) and b >= MIN_RATIO):
         raise QualityMeshError(M.REFINE_BAD_RATIO, ratio=b)
     pts, pairs, labels, seeds, voids = _read(pslg)
-    r = _Refiner(pts, pairs, seeds, voids, b, size, int(max_triangles))
+    arcs = _read_arcs(pslg, pts, pairs, labels, seeds, voids)
+    r = _Refiner(pts, pairs, seeds, voids, b, size, int(max_triangles),
+                 arcs)
     r.triangulate()
     r.recover()
     r.classify()
