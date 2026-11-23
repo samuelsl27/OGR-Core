@@ -20,6 +20,18 @@ Curve discretisation is expressed as **segments per full circle**, which
 is the parameter that behaves consistently whether the entity is a small
 fillet or a large arc: an arc of 90 degrees gets a quarter of that count.
 
+Arcs kept as arcs (v0.2.7)
+--------------------------
+With ``read_dxf(..., keep_arcs=True)`` the circular arcs are NOT flattened.
+Every ``ARC``, ``CIRCLE`` and polyline bulge comes as a few vertices on the
+circle, and :attr:`DxfPolyline.arcs` gives the centre of each piece
+``points[k] -> points[k + 1]`` that is an arc. Each piece is the **minor**
+arc about that centre, of 90 degrees at most: an arc of sweep S is cut into
+``ceil(S / 90)`` equal pieces, so a circle gives four quarters and a half
+circle two. The ends of a bulge are the polyline's own vertices, exactly.
+``SPLINE`` is still flattened. A mesher that puts its mid-side nodes on the
+boundary needs the true arc, and the flattened chords cannot give it back.
+
 Units
 -----
 The DXF header variable ``$INSUNITS`` is read but treated only as a
@@ -150,13 +162,23 @@ def guess_kind(layer_name: str) -> DxfEntityKind:
 # ======================================================================
 @dataclass
 class DxfPolyline:
-    """A polyline extracted from the DXF, in model coordinates."""
+    """A polyline extracted from the DXF, in model coordinates.
+
+    ``arcs`` is empty unless the drawing was read with ``keep_arcs=True``.
+    Then key ``k`` says that the piece ``points[k] -> points[k + 1]`` is the
+    minor arc (90 degrees at most) about that centre, in metres. A closed
+    polyline repeats its first point at the end, so its closing piece is
+    ``k = n - 2``. The radius and the sense follow from the two ends and the
+    centre. :class:`~ogr_core.dxf.sanitiser.GeometrySanitiser` does NOT
+    keep ``arcs``: it works on the flattened polylines.
+    """
 
     points: list[tuple[float, float]] = field(default_factory=list)
     closed: bool = False
     layer: str = ""
     source: str = ""          # DXF entity type it came from
     handle: str = ""          # DXF handle, for the problem report
+    arcs: dict[int, tuple[float, float]] = field(default_factory=dict)
 
     @property
     def n(self) -> int:
@@ -302,6 +324,42 @@ def _arc_points(cx, cy, r, start_deg, end_deg, segments_per_circle):
     return pts
 
 
+def _bulge_arc(p1, p2, bulge):
+    """The circle of a polyline bulge: ``(cx, cy, r, a1, a2)``, with the
+    angles of ``p1`` and ``p2`` about the centre, in degrees.
+
+    ``bulge`` is the tangent of a quarter of the included angle θ, positive
+    when the arc runs anticlockwise from ``p1`` to ``p2``. The centre lies
+    on the perpendicular bisector of the chord. For an anticlockwise arc of
+    less than half a circle it is to the LEFT of ``p1 -> p2``, and when
+    |bulge| > 1 (θ > 180°) it is to the right.
+
+    v0.2.7 — until v0.2.6 the centre was always put on the minor side, so a
+    bulge of more than half a circle was read as the minor arc of the
+    mirrored circle. From (0, 0) to (2, 0) with bulge tan 67.5° (θ = 270°,
+    centre (1, -1)), it gave 17 points down to y = -0.414 instead of 48
+    down to y = -2.414. For |bulge| <= 1 the arithmetic is unchanged.
+    """
+    chord = math.dist(p1, p2)
+    theta = 4.0 * math.atan(abs(bulge))          # included angle
+    r = chord / (2.0 * math.sin(theta / 2.0))
+    # Centre lies on the perpendicular bisector
+    mx, my = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
+    dx, dy = (p2[0] - p1[0]) / chord, (p2[1] - p1[1]) / chord
+    h = math.sqrt(max(r * r - (chord / 2.0) ** 2, 0.0))
+    if abs(bulge) > 1.0:
+        h = -h                                   # the major side
+    sign = 1.0 if bulge > 0 else -1.0
+    cx, cy = mx - sign * h * dy, my + sign * h * dx
+    a1 = math.degrees(math.atan2(p1[1] - cy, p1[0] - cx))
+    a2 = math.degrees(math.atan2(p2[1] - cy, p2[0] - cx))
+    return cx, cy, r, a1, a2
+
+
+def _is_straight(p1, p2, bulge) -> bool:
+    return abs(bulge) < 1e-12 or math.dist(p1, p2) < 1e-12
+
+
 def _bulge_points(p1, p2, bulge, segments_per_circle):
     """Points along a polyline bulge (the arc between two vertices).
 
@@ -309,21 +367,9 @@ def _bulge_points(p1, p2, bulge, segments_per_circle):
     how DXF stores polyline arcs; ignoring it would silently turn arcs
     into chords.
     """
-    if abs(bulge) < 1e-12:
+    if _is_straight(p1, p2, bulge):
         return [p1, p2]
-    chord = math.dist(p1, p2)
-    if chord < 1e-12:
-        return [p1, p2]
-    theta = 4.0 * math.atan(abs(bulge))          # included angle
-    r = chord / (2.0 * math.sin(theta / 2.0))
-    # Centre lies on the perpendicular bisector
-    mx, my = (p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0
-    dx, dy = (p2[0] - p1[0]) / chord, (p2[1] - p1[1]) / chord
-    h = math.sqrt(max(r * r - (chord / 2.0) ** 2, 0.0))
-    sign = 1.0 if bulge > 0 else -1.0
-    cx, cy = mx - sign * h * dy, my + sign * h * dx
-    a1 = math.degrees(math.atan2(p1[1] - cy, p1[0] - cx))
-    a2 = math.degrees(math.atan2(p2[1] - cy, p2[0] - cx))
+    cx, cy, r, a1, a2 = _bulge_arc(p1, p2, bulge)
     if bulge > 0:
         pts = _arc_points(cx, cy, r, a1, a2, segments_per_circle)
     else:
@@ -332,9 +378,68 @@ def _bulge_points(p1, p2, bulge, segments_per_circle):
     return pts
 
 
+#: The largest sweep of one arc piece when the arcs are kept, in degrees.
+#: Well below half a circle: near 180° the centre is almost on the chord,
+#: and which of the two arcs is meant becomes ill-conditioned.
+ARC_PIECE_MAX_DEG = 90.0
+
+
+def _arc_pieces(cx, cy, r, start_deg, sweep_deg, p_start, p_end):
+    """The vertices of an arc cut into equal pieces of
+    ``ARC_PIECE_MAX_DEG`` at most. The arc runs from ``p_start`` (at
+    ``start_deg``) through ``sweep_deg`` (anticlockwise if positive) to
+    ``p_end``. The two ends are the ones given, not recomputed."""
+    n = max(1, math.ceil(abs(sweep_deg) / ARC_PIECE_MAX_DEG - 1e-9))
+    pts = [p_start]
+    for k in range(1, n):
+        a = math.radians(start_deg + sweep_deg * k / n)
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    pts.append(p_end)
+    return pts
+
+
+def _bulge_pieces(p1, p2, bulge):
+    """A bulge as arc pieces: ``(points, centre)``. ``centre`` is None for
+    a straight piece."""
+    if _is_straight(p1, p2, bulge):
+        return [p1, p2], None
+    cx, cy, r, a1, a2 = _bulge_arc(p1, p2, bulge)
+    if bulge > 0:
+        sweep = (a2 - a1) % 360.0
+    else:
+        sweep = -((a1 - a2) % 360.0)
+    return _arc_pieces(cx, cy, r, a1, sweep, p1, p2), (cx, cy)
+
+
+def _polyline_with_bulges(raw, closed, keep_arcs, segments_per_circle):
+    """The points of a polyline given as ``(x, y, bulge)`` vertices, and
+    the centre of each piece. A centre is None where the piece is straight,
+    and always None unless ``keep_arcs``. The last vertex's bulge belongs
+    to the closing piece, so it only counts when the polyline is closed."""
+    pts, centres = [], []
+    for i, (x, y, b) in enumerate(raw):
+        nxt = raw[(i + 1) % len(raw)]
+        if i == len(raw) - 1 and not closed:
+            pts.append((x, y))
+            break
+        if keep_arcs:
+            seg, centre = _bulge_pieces((x, y), (nxt[0], nxt[1]), b)
+        else:
+            seg = _bulge_points((x, y), (nxt[0], nxt[1]), b,
+                                segments_per_circle)
+            centre = None
+        centres.extend([centre] * (len(seg) - 1))
+        pts.extend(seg[:-1])
+    if not closed and pts and pts[-1] != (raw[-1][0], raw[-1][1]):
+        pts.append((raw[-1][0], raw[-1][1]))
+    if closed and pts:
+        pts.append(pts[0])
+    return pts, centres
+
+
 # ======================================================================
 def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
-             ) -> DxfCatalogue:
+             keep_arcs: bool = False) -> DxfCatalogue:
     """Read a DXF file into a :class:`DxfCatalogue`.
 
     Args:
@@ -342,7 +447,12 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
         unit: drawing unit the file is in; coordinates are converted to
             metres. Defaults to metres, as agreed.
         segments_per_circle: discretisation density for arcs, circles,
-            splines and polyline bulges.
+            splines and polyline bulges. With ``keep_arcs`` it only applies
+            to splines.
+        keep_arcs: keep the circular arcs (``ARC``, ``CIRCLE`` and polyline
+            bulges) as arcs. They come as pieces of 90 degrees at most, and
+            :attr:`DxfPolyline.arcs` gives the centre of each one (see the
+            module's docstring). By default they are flattened, as always.
 
     Raises:
         RuntimeError: if ``ezdxf`` is unavailable or the file cannot be
@@ -376,22 +486,47 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
     def _scale(pts):
         return [(x * factor, y * factor) for x, y in pts]
 
-    def _add(layer_name, etype, pts, closed, handle):
+    def _add(layer_name, etype, pts, closed, handle, centres=()):
+        """``centres[k]`` is the centre of the piece ``pts[k] -> pts[k+1]``
+        when it is an arc, or None."""
         lay = _layer(layer_name)
         lay.entity_counts[etype] = lay.entity_counts.get(etype, 0) + 1
         pts = _scale(pts)
         # Drop consecutive duplicates: they carry no shape and would
-        # produce zero-length segments downstream.
+        # produce zero-length segments downstream. The piece that reaches
+        # a kept point i is the piece i - 1 of the list as it came: the
+        # dropped points before it coincide with the last kept one.
         clean = [pts[0]] if pts else []
-        for p in pts[1:]:
+        arcs = {}
+        for i in range(1, len(pts)):
+            p = pts[i]
             if math.dist(p, clean[-1]) > 1e-12:
+                centre = centres[i - 1] if i - 1 < len(centres) else None
+                if centre is not None:
+                    arcs[len(clean) - 1] = (centre[0] * factor,
+                                            centre[1] * factor)
                 clean.append(p)
         if len(clean) < 2:
             cat.skipped["degenerate"] = cat.skipped.get("degenerate", 0) + 1
             return
         lay.polylines.append(DxfPolyline(points=clean, closed=closed,
                                          layer=layer_name, source=etype,
-                                         handle=handle))
+                                         handle=handle, arcs=arcs))
+
+    def _arc_entity(cx, cy, r, start_deg, end_deg):
+        """An ARC (or, with ``end_deg = start_deg + 360``, a CIRCLE) as
+        kept arc pieces: ``(points, centres)``. The ends come from the
+        start and end angles, and a full turn ends on its own first
+        point."""
+        sweep = (end_deg - start_deg) % 360.0
+        if sweep <= 1e-12:
+            sweep = 360.0
+        a0, a1 = math.radians(start_deg), math.radians(start_deg + sweep)
+        p0 = (cx + r * math.cos(a0), cy + r * math.sin(a0))
+        p1 = (p0 if sweep == 360.0
+              else (cx + r * math.cos(a1), cy + r * math.sin(a1)))
+        pts = _arc_pieces(cx, cy, r, start_deg, sweep, p0, p1)
+        return pts, [(cx, cy)] * (len(pts) - 1)
 
     msp = doc.modelspace()
     for e in msp:
@@ -405,41 +540,48 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
                       (e.dxf.end.x, e.dxf.end.y)], False, handle)
 
             elif etype == "LWPOLYLINE":
-                pts = []
                 raw = list(e.get_points("xyb"))
-                for i, (x, y, b) in enumerate(raw):
-                    nxt = raw[(i + 1) % len(raw)]
-                    if i == len(raw) - 1 and not e.closed:
-                        pts.append((x, y))
-                        break
-                    seg = _bulge_points((x, y), (nxt[0], nxt[1]), b,
-                                        segments_per_circle)
-                    pts.extend(seg[:-1])
-                if not e.closed and pts and pts[-1] != (raw[-1][0],
-                                                        raw[-1][1]):
-                    pts.append((raw[-1][0], raw[-1][1]))
-                if e.closed and pts:
-                    pts.append(pts[0])
-                _add(layer_name, etype, pts, bool(e.closed), handle)
+                pts, centres = _polyline_with_bulges(
+                    raw, bool(e.closed), keep_arcs, segments_per_circle)
+                _add(layer_name, etype, pts, bool(e.closed), handle,
+                     centres)
 
             elif etype == "POLYLINE":
-                pts = [(v.dxf.location.x, v.dxf.location.y)
+                # v0.2.7 — the bulges of a 2-D POLYLINE were ignored until
+                # v0.2.6, so its arcs came as chords with no warning. A 3-D
+                # polyline or a mesh has no bulges.
+                is_2d = bool(getattr(e, "is_2d_polyline", False))
+                raw = [(v.dxf.location.x, v.dxf.location.y,
+                        float(v.dxf.get("bulge", 0.0)) if is_2d else 0.0)
                        for v in e.vertices]
-                if e.is_closed and pts:
-                    pts = pts + [pts[0]]
-                _add(layer_name, etype, pts, bool(e.is_closed), handle)
+                pts, centres = _polyline_with_bulges(
+                    raw, bool(e.is_closed), keep_arcs, segments_per_circle)
+                _add(layer_name, etype, pts, bool(e.is_closed), handle,
+                     centres)
 
             elif etype == "ARC":
-                pts = _arc_points(e.dxf.center.x, e.dxf.center.y,
-                                  e.dxf.radius, e.dxf.start_angle,
-                                  e.dxf.end_angle, segments_per_circle)
-                _add(layer_name, etype, pts, False, handle)
+                if keep_arcs:
+                    pts, centres = _arc_entity(
+                        e.dxf.center.x, e.dxf.center.y, e.dxf.radius,
+                        e.dxf.start_angle, e.dxf.end_angle)
+                else:
+                    pts = _arc_points(e.dxf.center.x, e.dxf.center.y,
+                                      e.dxf.radius, e.dxf.start_angle,
+                                      e.dxf.end_angle, segments_per_circle)
+                    centres = ()
+                _add(layer_name, etype, pts, False, handle, centres)
 
             elif etype == "CIRCLE":
-                pts = _arc_points(e.dxf.center.x, e.dxf.center.y,
-                                  e.dxf.radius, 0.0, 360.0,
-                                  segments_per_circle)
-                _add(layer_name, etype, pts, True, handle)
+                if keep_arcs:
+                    pts, centres = _arc_entity(
+                        e.dxf.center.x, e.dxf.center.y, e.dxf.radius,
+                        0.0, 360.0)
+                else:
+                    pts = _arc_points(e.dxf.center.x, e.dxf.center.y,
+                                      e.dxf.radius, 0.0, 360.0,
+                                      segments_per_circle)
+                    centres = ()
+                _add(layer_name, etype, pts, True, handle, centres)
 
             elif etype == "SPLINE":
                 # ``flattening`` needs a positive sagitta tolerance; it is
