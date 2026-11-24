@@ -129,13 +129,13 @@ a byte después (SHA-256 igual): **mueren los doce**.
 | `undo_step` ignorado | 2 |
 | `WorkspaceNames` ignorado | 1 |
 
-**La regla 8**, el 2026-11-24 en Windows, contra `eeee542` (la rama `armazon-operaciones`, en
-`0.2.9.dev0`):
+**La regla 8**, el 2026-11-24 en Windows, contra la rama `armazon-operaciones` en `0.2.9.dev0`:
+`eeee542` y `96ee4ee` tienen el mismo `ogr_core` (entre los dos solo cambia este changelog).
 
 | Qué | Resultado |
 |---|---|
 | OGR FEM2D `1a3d97f` (su v0.0.12, fija `v0.2.8`) **entera**, con `--dev-core` | 660 de 660, ninguna fuga, código 0. `shared: ogr_core 0.2.9.dev0 … @ eeee542`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (17:41–17:48) |
-| OGR Slip2D | pendiente: su sesión trabaja en su árbol |
+| OGR Slip2D `ffd1dfc` (su v0.1.488, fija `v0.2.7`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7584 casos: 7582 pasan, 0 fallos, 2 saltados (los de la plataforma, como en la 0.2.8), ninguna fuga, código 0. `shared: ogr_core 0.2.9.dev0 … @ 96ee4ee`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (18:01–18:08) |
 | CI de la PR 35 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR (Linux) |
 
 **Una primera corrida de OGR FEM2D no cuenta.** Contra su `fc3972e` dio 657 de 657, pero su
