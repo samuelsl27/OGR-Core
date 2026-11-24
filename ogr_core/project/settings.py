@@ -1116,9 +1116,11 @@ class SarmaSettings:
     None of the global ``methods`` settings reaches Sarma: it has its own
     number of wedges, tolerance and iterations (Brent's, on F).
 
-    * ``num_slices`` -- the LEAST number of wedges: the boundaries are the
-      vertices of the surface, its crossings with the water table and the
-      material contacts, and divisions up to this. On a straight stretch of
+    * ``num_slices`` -- the number of wedges ASKED FOR: the boundaries are
+      the vertices of the surface, its crossings with the water table and
+      the material contacts, and uniform divisions up to this number. A
+      surface may so get more wedges than asked for, and fewer where a
+      division is dropped (below, ``slice_angles``). On a straight stretch of
       one Mohr-Coulomb material more wedges do not change F (the wedges of a
       straight base add up to the one they split; a division whose face
       would cross a neighbour is dropped for that reason), also when the
@@ -1130,9 +1132,17 @@ class SarmaSettings:
     * ``slice_angles`` -- the angle of the faces no vertex gives one
       (``ogr_slip2d.sarma.angles``): ``bisector``, ``mean_normal`` or
       ``vertical``. A face of the policy that would cross a neighbour or not
-      reach the ground is dropped with its boundary where it is a uniform
-      division, and made vertical at a vertex, a contact or a water-table
-      cut (one of a crossing pair). Since v0.1.471 also
+      reach the ground is dropped with its boundary only where it is a
+      uniform division between two bases on one straight stretch of one
+      Mohr-Coulomb material (since Slip2D v0.1.488, D454: bases within
+      1e-9 rad, ``droppable`` in ``ogr_slip2d.sarma.wedges``); anywhere
+      else -- the chords of a circle, say -- and at a vertex, a contact or
+      a water-table cut, it is made vertical (one of a crossing pair), and
+      the number of wedges is kept. Before, a uniform division was dropped
+      wherever it crossed, and a circle of Slip2D's bank asked for 25
+      wedges came down to 2 chords: F 2.21 with the bisector against 4.19
+      with vertical faces and 4.37 by Spencer, on the unsafe side. Since
+      v0.1.471 also
       ``optimized_global`` (every surface with the bisector, the critical
       one with the faces that make its factor least) and ``optimized_all``
       (every surface optimised; ``ogr_slip2d.sarma.optimize_angles``). A
