@@ -71,6 +71,12 @@ test, que lee el código y también mira `sys.modules` en tiempo de ejecución.
 El núcleo **contiene un solver**: el de filtración, en `ogr_core/fem/`, porque lo usan los dos
 programas (decisión P1 de la especificación 009). Lo que solo usa un programa vive en ese programa.
 
+El núcleo **contiene también el armazón de la capa de operaciones** (`ogr_core/api/`, desde la
+v0.2.9): el registro, los errores con código, la conversión de argumentos, los trabajos en
+subproceso, el protocolo del puente y el espacio de trabajo, sin Qt ni `mcp` y sin ninguna
+operación de ningún programa. Cada programa registra las suyas y le da al trabajo su propia función,
+que viaja al hijo por pickle: el núcleo no nombra nunca un programa.
+
 Una regla que necesitan dos programas vive aquí, y los programas la preguntan; copiarla es cómo
 acaban diciendo cosas distintas.
 
