@@ -34,7 +34,6 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 
 | Cambio | Para quién | Estado |
 |---|---|---|
-| D429: un `.ogr` con un valor que esta versión no conoce, o con un peso o un nombre de otro tipo, se rechaza al abrirlo con su código (rama `d429-lectores`, 0.2.11) | OGR Slip2D | Hecho en la rama, sin etiquetar. Slip2D tiene que traducir `file.value_unknown`, `file.field_type`, `PermeabilityModel` y `AccelerationUnit` antes de correr su suite contra él (`CHANGELOG_v0.2.11.md`, §2) |
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
 | El lector DXF cuenta `skipped` por capa (en `DxfLayer`, como `entity_counts`), y no solo en todo el dibujo | OGR FEM2D | Sin pedir: no bloquea nada. FEM2D lo usaría para decir de qué capa viene cada entidad que el lector deja fuera (su nota del 2026-11-24 sobre la v0.2.8) |

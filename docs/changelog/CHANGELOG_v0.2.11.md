@@ -1,4 +1,4 @@
-# OGR Core v0.2.11 (sin etiquetar)
+# OGR Core v0.2.11
 
 **Un `.ogr` con un valor que esta versión no conoce, o con un peso o un nombre de otro tipo, se
 rechaza al abrirlo, con su código (D429).** Hasta ahora cuatro lectores ponían otro valor sin
@@ -85,6 +85,18 @@ de ejemplo:
 | Qué | Resultado |
 |---|---|
 | OGR Slip2D `c6ba3be` (su `3a2e4bb` más las traducciones de §2) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `eec1912` | 7597 casos: 7595 pasan, 0 fallos, 2 saltados, ninguna fuga ni tramo muerto. El censo de D414 no falla por nada más. La corrió la sesión de Slip2D |
-| OGR FEM2D **entera**, con `--dev-core` | Pendiente |
+| OGR FEM2D | **No se corrió**: la propietaria la eximió esta vez (2026-11-25) |
 
-No se etiqueta hasta tener las dos (aquí o junto con D431).
+**Una excepción a la regla 8, solo para esta versión.** La propietaria decidió etiquetar con la
+suite de OGR Slip2D en verde y sin la de OGR FEM2D, por dos razones:
+
+- FEM2D no usa ninguno de los lectores que cambian (§2);
+- fija `v0.2.9`, así que esta etiqueta no le llega hasta que suba su fijación.
+
+Además, su árbol tenía trabajo sin confirmar de su sesión: una corrida ahí no habría medido ningún
+commit suyo. **Cuando FEM2D suba su fijación a esta versión o a una posterior, su suite entera
+contra ella es la que lo comprueba.** La CI de la PR 43 la corre contra el núcleo de la rama, en
+Linux.
+
+`ec1bc3b` y el commit de la etiqueta tienen el mismo `ogr_core` que `eec1912`, contra el que corrió
+Slip2D: entre ellos solo cambian este changelog, `docs/consumidores.md` y el número de versión.
