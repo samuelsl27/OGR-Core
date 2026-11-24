@@ -129,4 +129,19 @@ a byte después (SHA-256 igual): **mueren los doce**.
 | `undo_step` ignorado | 2 |
 | `WorkspaceNames` ignorado | 1 |
 
-**La regla 8**: pendiente.
+**La regla 8**, el 2026-11-24 en Windows, contra `eeee542` (la rama `armazon-operaciones`, en
+`0.2.9.dev0`):
+
+| Qué | Resultado |
+|---|---|
+| OGR FEM2D `1a3d97f` (su v0.0.12, fija `v0.2.8`) **entera**, con `--dev-core` | 660 de 660, ninguna fuga, código 0. `shared: ogr_core 0.2.9.dev0 … @ eeee542`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (17:41–17:48) |
+| OGR Slip2D | pendiente: su sesión trabaja en su árbol |
+| CI de la PR 35 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR (Linux) |
+
+**Una primera corrida de OGR FEM2D no cuenta.** Contra su `fc3972e` dio 657 de 657, pero su
+sesión cambió cinco archivos mientras corría (a las 17:09:34; subía su fijación a `v0.2.8`), uno de
+ellos un test. Se repitió cuando cerró ese trabajo en `1a3d97f`.
+
+Antes de escribir la §2 se comprobó en el código de los dos programas que ninguno importa
+`ogr_core.api` (la lección de la nota de FEM2D sobre la 0.2.8: un aviso a un programa se contrasta
+con su código).
