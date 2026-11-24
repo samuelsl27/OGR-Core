@@ -36,7 +36,6 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 |---|---|---|
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
-| El armazón de la capa de operaciones sin Qt (`ogr_core.api`: registro, errores con código, conversión, trabajos en subproceso, puente y espacio de trabajo), pedido por OGR FEM2D para la parte B de su spec 006 | OGR FEM2D (y OGR Slip2D, si lo adopta) | En curso en la rama `armazon-operaciones`, para la v0.2.9 (`docs/changelog/CHANGELOG_v0.2.9.md`) |
 | Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí en la v0.2.3, en sus tests. OGR FEM2D lo arregló en su v0.0.5 (`a4965b7`). OGR Slip2D usa el mismo patrón y hoy no tiene ningún `.py` oculto: pendiente |
 
 Una fila sale de aquí cuando el cambio está en una versión etiquetada: desde entonces lo cuenta

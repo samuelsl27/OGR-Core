@@ -1,12 +1,14 @@
 # OGR Core
 
 **The shared core of the [OpenGeoRock](https://opengeorock.org) suite** — geometry, materials,
-project model, loads, supports, hydraulics, statistics, annotations, DXF, reports, and the
-finite-element mesh and groundwater seepage solver.
+project model, loads, supports, hydraulics, statistics, annotations, DXF, reports, the
+finite-element mesh and groundwater seepage solver, and the framework of each program's operations
+layer (`ogr_core.api`: registry, coded errors, jobs in a child process, the live bridge), without
+Qt.
 
 [Versión en español](README.es.md)
 
-> **Latest release: 0.2.8.** The code is the core of
+> **Latest release: 0.2.9.** The code is the core of
 > [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) as it stood in that program at its commit
 > `d48e2b3` (v0.1.471), with its finite-element mesh and seepage inside `ogr_core.fem`. Since 0.2.0
 > there is one core for every program of the suite, and it changes here and nowhere else.
