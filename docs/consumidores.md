@@ -37,7 +37,6 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
 | Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí en la v0.2.3, en sus tests. OGR FEM2D lo arregló en su v0.0.5 (`a4965b7`). OGR Slip2D usa el mismo patrón y hoy no tiene ningún `.py` oculto: pendiente |
-| El lector DXF lee `ARC`, `CIRCLE`, `LWPOLYLINE` y `POLYLINE` 2-D en sus coordenadas (OCS): con extrusión −Z se leían reflejadas en x | Los dos | En curso en la rama `dxf-ocs`, para la v0.2.8 (`docs/changelog/CHANGELOG_v0.2.8.md`) |
 
 Una fila sale de aquí cuando el cambio está en una versión etiquetada: desde entonces lo cuenta
 su changelog.
