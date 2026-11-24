@@ -25,6 +25,12 @@ an object with none of the keys of a project, a section or an item of
 another JSON type (``ogr_core.project.file_shape``). Those were an
 ``AttributeError`` the agent received loose, or a file that opened empty.
 
+OGR Core 0.2.11 (D429) -- what is inside an item: a value of a field this
+build does not know that is not an enumeration (the kind of a drawdown
+envelope, the interpolation of the pore pressure grid), and a field of
+another JSON type (a unit weight ``"x"``, a name ``5``). Those opened, and
+the first was read with another value, said nowhere.
+
 No dependency on the rest of the core, so every reader can import it.
 
 Author: Samuel Sáez López (UPCT)
@@ -44,6 +50,9 @@ NOT_A_PROJECT = F + "not_a_project"
 NO_PROJECT_KEY = F + "no_project_key"
 SECTION_SHAPE = F + "section_shape"
 ITEM_SHAPE = F + "item_shape"
+# OGR Core 0.2.11 (D429) -- what is inside an item
+VALUE_UNKNOWN = F + "value_unknown"
+FIELD_TYPE = F + "field_type"
 
 #: The JSON shapes a file can hold where a section goes, and the English
 #: words the sentence says them by (the window says them by the same words,
@@ -96,6 +105,16 @@ FILE_MESSAGES = {s.code: s for s in (
     MessageSpec(ITEM_SHAPE,
                 "Item {n} of the section '{section}' of the file must be an "
                 "object, not {found}.", kinds=(("found", _SHAPE),)),
+    # OGR Core 0.2.11 (D429) -- a field is named by its key, as a section
+    # is: the person mending the file looks for it; ``known`` goes as a
+    # :class:`Joined` of the values the file may hold
+    MessageSpec(VALUE_UNKNOWN,
+                "Unknown value of '{field}': '{value}'. Known: {known}",
+                kinds=(("value", _VALUE),)),
+    MessageSpec(FIELD_TYPE,
+                "The field '{field}' of item {n} of the section '{section}' "
+                "of the file must be {expected}, not {found}.",
+                kinds=(("expected", _SHAPE), ("found", _SHAPE))),
 )}
 
 
@@ -128,6 +147,18 @@ def file_refusal(code: str, text: str, **args) -> Coded:
     names item by item."""
     return Coded(text, code, {k: (Joined(v) if isinstance(v, list) else v)
                               for k, v in args.items()})
+
+
+def value_unknown(field: str, value, known) -> ValueError:
+    """The ``ValueError`` of a reader that finds, in ``field``, a ``value``
+    that is not one of ``known`` (OGR Core 0.2.11, D429). The value is
+    quoted as the file writes it: a null as «null»."""
+    shown = ("null" if value is None else
+             ("true" if value else "false") if isinstance(value, bool)
+             else value)
+    return ValueError(file_refusal(
+        VALUE_UNKNOWN, f"Unknown value of '{field}': '{shown}'. Known: "
+        f"{', '.join(known)}", field=field, value=value, known=list(known)))
 
 
 def said_as(exc, code: str, **values):

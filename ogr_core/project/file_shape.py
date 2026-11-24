@@ -23,16 +23,24 @@ same ``document_hash``, and the review found none refused among the 2486 of
 the repository and the history. Only what was not a valid file is refused,
 by a code the window says in the reader's language.
 
-What is checked is the shape of the sections, not the values inside them (a
-unit weight ``"x"``): that is D429, by the owner's decision.
+What is checked is the shape of the sections, not the values inside them.
+
+OGR Core 0.2.11 (D429) -- and the JSON type of a few fields of an item: the
+name of a material and its two unit weights (:data:`ITEM_FIELDS`). A unit
+weight ``"x"`` opened and failed in the analysis, as a ``TypeError``; a name
+``5`` or ``null`` opened with it. A field that is absent is left alone, as
+the reader always left it (it has its default, or it is a ``KeyError``, by
+the rule of D412). Here, and not in ``Material.from_dict``, because here is
+where the item's number is, which the sentence says. Measured on the 30 800
+``.ogr`` of the bank of OGR Slip2D: none is refused.
 
 Author: Samuel Sáez López (UPCT)
 """
 from __future__ import annotations
 
-from ..file_messages import (ITEM_SHAPE, NO_PROJECT_KEY, NOT_A_PROJECT,
-                             SECTION_SHAPE, SHAPE_WORDS, file_refusal,
-                             json_shape)
+from ..file_messages import (FIELD_TYPE, ITEM_SHAPE, NO_PROJECT_KEY,
+                             NOT_A_PROJECT, SECTION_SHAPE, SHAPE_WORDS,
+                             file_refusal, json_shape)
 
 LIST = "list"
 OBJECT = "object"
@@ -83,6 +91,16 @@ SETTINGS_SECTIONS = {
     # v0.1.464 (D357) -- written only when Sarma is used; the reader takes a
     # null as the defaults (``SarmaSettings.from_dict(... or {})``)
     "sarma": OBJECT_OR_NULL,
+}
+
+#: The fields of an item whose JSON type is checked, by section: a number
+#: is an ``int`` or a ``float`` and never a boolean (``json_shape``).
+ITEM_FIELDS = {
+    "materials": {
+        "name": "string",
+        "unit_weight": "number",
+        "sat_unit_weight": "number",
+    },
 }
 
 #: The keys a project's file holds besides its sections: an object with
@@ -141,3 +159,19 @@ def _check_sections(data: dict, table: dict, prefix: str) -> None:
                         f"the file must be an object, not "
                         f"{SHAPE_WORDS.get(kind, kind)}.",
                         n=n, section=section, found=kind))
+                _check_fields(item, ITEM_FIELDS.get(prefix + key, {}),
+                              n, prefix + key)
+
+
+def _check_fields(item: dict, fields: dict, n: int, section: str) -> None:
+    for name, expected in fields.items():
+        if name not in item:
+            continue
+        found = json_shape(item[name])
+        if found != expected:
+            raise ValueError(file_refusal(
+                FIELD_TYPE, f"The field '{name}' of item {n} of the section "
+                f"'{section}' of the file must be {SHAPE_WORDS[expected]}, "
+                f"not {SHAPE_WORDS.get(found, found)}.",
+                field=name, n=n, section=section, expected=expected,
+                found=found))

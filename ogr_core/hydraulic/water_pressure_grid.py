@@ -69,6 +69,11 @@ class GridValueType(Enum):
     PORE_PRESSURE = "pore_pressure"
 
 
+#: The interpolations a grid may have, as the file writes them (OGR Core
+#: 0.2.11, D429): any other is refused when the file is read.
+INTERPOLATIONS = ("tps", "idw")
+
+
 #: What the values of the grid ARE, by groundwater method (v0.1.202).
 _METHOD_TYPES = {
     "grid_total_head": GridValueType.TOTAL_HEAD,
@@ -150,13 +155,21 @@ class WaterPressureGrid:
         value_type = d.get("value_type")
         if value_type is not None:
             value_type = read_enum(GridValueType, value_type)
+        # OGR Core 0.2.11 (D429) -- an interpolation this build does not
+        # know is refused by its code: ``value_at`` read it as IDW, said
+        # nowhere. Without the key, the grid is a TPS, as it always was.
+        interpolation = d.get("interpolation", "tps")
+        if interpolation not in INTERPOLATIONS:
+            from ..file_messages import value_unknown
+            raise value_unknown("interpolation", interpolation,
+                                INTERPOLATIONS)
         return cls(
             points=[tuple(p) for p in d.get("points", [])],
             # A file written before v0.1.202 carries the grid's type; it is
             # the type the grid WAS read with, which the project loader
             # uses to keep the file's meaning (``Project.from_dict``).
             value_type=value_type,
-            interpolation=d.get("interpolation", "tps"),
+            interpolation=interpolation,
             idw_neighbours=int(d.get("idw_neighbours", 8)),
             allow_suction=bool(d.get("allow_suction", False)),
         )

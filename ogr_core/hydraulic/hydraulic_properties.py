@@ -558,16 +558,18 @@ class HydraulicProperties:
 
 def _model_from_dict(d: dict) -> PermeabilityModel:
     """Read the permeability model, accepting the v0.1.26 key
-    ``unsaturated_model`` (where "saturated" meant constant k)."""
+    ``unsaturated_model`` (where "saturated" meant constant k).
+
+    OGR Core 0.2.11 (D429) -- a model this build does not know, in either
+    key, is refused by its code (``read_enum``): it was read as constant k,
+    said nowhere. A ``"model": null`` is a value, not an absence (the
+    writer never writes it), and is refused too; a file without ``model``
+    and without ``unsaturated_model``, or with ``"saturated"``, is constant
+    k as it always was."""
+    from ..file_messages import read_enum
     if "model" in d:
-        try:
-            return PermeabilityModel(d["model"])
-        except ValueError:
-            return PermeabilityModel.CONSTANT
+        return read_enum(PermeabilityModel, d["model"])
     legacy = d.get("unsaturated_model")
     if legacy in (None, "saturated"):
         return PermeabilityModel.CONSTANT
-    try:
-        return PermeabilityModel(legacy)
-    except ValueError:
-        return PermeabilityModel.CONSTANT
+    return read_enum(PermeabilityModel, legacy)
