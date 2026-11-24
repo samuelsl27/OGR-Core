@@ -52,8 +52,13 @@ Visto al hacer la 0.2.7 (su §0 y §4) y reportado antes de corregirlo. Decisió
   - `PLANE_TOL = 1e-9`: una extrusión unitaria con |x| o |y| por encima de eso no está en el plano
     del dibujo. Con 1e-9, la proyección de una circunferencia es una elipse cuyos ejes difieren en
     5e-19. Una entidad así no se lee, y `skipped` la cuenta como `"<TIPO> (not in the XY plane)"`,
-    con la forma de `"<TIPO> (unreadable)"`. El `import_dxf` de OGR FEM2D, que suma `skipped` por el
-    prefijo del tipo, la cuenta ya.
+    con la forma de `"<TIPO> (unreadable)"`. ~~El `import_dxf` de OGR FEM2D, que suma `skipped` por
+    el prefijo del tipo, la cuenta ya.~~ **Corrección (2026-11-24, de la sesión de OGR FEM2D): no era
+    así.** Ese `import_dxf` solo sumaba `skipped` para `ELLIPSE`, de modo que un `CIRCLE` inclinado
+    en la capa de excavación daba `skipped = {'CIRCLE (not in the XY plane)': 1}` y el informe no lo
+    decía: el hueco desaparecía del modelo sin aviso. FEM2D lo corrigió en su v0.0.12 (`1a3d97f`):
+    su informe nombra ahora cada clave de `skipped` con su razón. La frase salió de aquí sin leer
+    el código de FEM2D.
   - Los centros de `arcs`, como `float`.
 
 ## 2. Lo que tiene que cambiar cada programa (regla 10)
