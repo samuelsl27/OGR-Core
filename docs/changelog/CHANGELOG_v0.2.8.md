@@ -94,7 +94,19 @@ diría si alguno de sus DXF cambia.
 El último sobrevivió en la primera tanda: con −Z los centros ya salen `float` de la transformación,
 y el test solo lo miraba ahí. Se añadió el caso con +Z.
 
-**La regla 8**: pendiente; se anota aquí con lo que salga.
+**La regla 8, sobre el commit `aed77f4`** (la rama `dxf-ocs`, el árbol en `0.2.8.dev0`). El
+2026-11-24, en Windows, las dos a la vez y sin otra corrida de esos programas en la máquina.
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `03b6c2d` (su v0.1.486) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7577 casos: 7575 pasan, 0 fallos, 2 saltados (los de la plataforma, como en la 0.2.7), ninguna fuga, código 0. `shared: ogr_core 0.2.8.dev0 … @ aed77f4`, `DEV CORE` antes y después |
+| OGR FEM2D | **pendiente, la corrida no cuenta** (abajo) |
+
+**La corrida de OGR FEM2D no cuenta.** Su sesión estaba trabajando en el mismo árbol: la versión
+en 0.0.11 sin commit, y `CHANGELOG_v0.0.11.md`, `ogr_fem2d/results/` y un test nuevo sin guardar,
+sobre su `687470e`. Dio 495 de 496. El que falló es `test_the_changelog_of_this_version_exists`,
+que no encontró `CHANGELOG_v0.0.11.md` y que nada tiene que ver con el núcleo; el archivo apareció
+durante la corrida. Lo corrido no es lo guardado. Se repite cuando su árbol esté limpio.
 
 ## 4. Queda abierto
 
