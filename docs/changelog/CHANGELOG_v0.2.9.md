@@ -1,8 +1,5 @@
 # OGR Core v0.2.9
 
-> **En curso.** `main` dice `0.2.9.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
-
 **El armazón de la capa de operaciones, sin Qt y sin `mcp`: `ogr_core.api`.** El registro de
 operaciones, los errores con código, la conversión de argumentos, los trabajos en un proceso hijo
 que se cancelan de verdad, el puente con la ventana abierta y el espacio de trabajo con sus
@@ -136,7 +133,7 @@ a byte después (SHA-256 igual): **mueren los doce**.
 |---|---|
 | OGR FEM2D `1a3d97f` (su v0.0.12, fija `v0.2.8`) **entera**, con `--dev-core` | 660 de 660, ninguna fuga, código 0. `shared: ogr_core 0.2.9.dev0 … @ eeee542`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (17:41–17:48) |
 | OGR Slip2D `ffd1dfc` (su v0.1.488, fija `v0.2.7`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7584 casos: 7582 pasan, 0 fallos, 2 saltados (los de la plataforma, como en la 0.2.8), ninguna fuga, código 0. `shared: ogr_core 0.2.9.dev0 … @ 96ee4ee`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (18:01–18:08) |
-| CI de la PR 35 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR (Linux) |
+| CI de la PR 35, en su último commit (`dcba6b1`) | todos los trabajos en verde, también los dos programas contra el núcleo de la PR (Linux) y `pins` |
 
 **Una primera corrida de OGR FEM2D no cuenta.** Contra su `fc3972e` dio 657 de 657, pero su
 sesión cambió cinco archivos mientras corría (a las 17:09:34; subía su fijación a `v0.2.8`), uno de

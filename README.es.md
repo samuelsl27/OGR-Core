@@ -1,12 +1,14 @@
 # OGR Core
 
 **El núcleo compartido de la suite [OpenGeoRock](https://opengeorock.org)**: geometría, materiales,
-modelo de proyecto, cargas, soportes, hidráulica, estadística, anotaciones, DXF, informes, y la
-malla y el solver de filtración por elementos finitos.
+modelo de proyecto, cargas, soportes, hidráulica, estadística, anotaciones, DXF, informes, la
+malla y el solver de filtración por elementos finitos, y el armazón de la capa de operaciones de
+cada programa (`ogr_core.api`: registro, errores con código, trabajos en un proceso hijo, el puente
+con la ventana), sin Qt.
 
 [English version](README.md)
 
-> **Última versión publicada: 0.2.8.** El código es el núcleo de
+> **Última versión publicada: 0.2.9.** El código es el núcleo de
 > [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) tal como estaba en ese programa en su commit
 > `d48e2b3` (v0.1.471), con su malla y su filtración por elementos finitos dentro de `ogr_core.fem`.
 > Desde la 0.2.0 hay un solo núcleo para todos los programas de la suite, y se cambia solo aquí.

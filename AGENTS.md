@@ -1,8 +1,8 @@
 # OGR Core
 
 Núcleo compartido de la suite: geometría, materiales, modelo de proyecto, cargas, soportes,
-hidráulica, estadística, anotaciones, DXF, informes, y la malla y la filtración por elementos
-finitos.
+hidráulica, estadística, anotaciones, DXF, informes, la malla y la filtración por elementos
+finitos, y el armazón de la capa de operaciones (`ogr_core.api`), sin Qt.
 
 **Dos niveles de nombre**: *OpenGeoRock* (u *OGR Suite*) es el paraguas de los programas de la
 suite; **OGR Core** es la biblioteca común. La distribución se llama `ogr-core` y el paquete de
@@ -14,7 +14,7 @@ Autor y titular del copyright: Samuel Sáez López (UPCT). Licencia AGPL-3.0-or-
 > Este archivo es el **contrato de trabajo** con cualquier agente de IA. Se consulta antes de cada
 > acción. Deriva del `AGENTS.md` de OGR Slip2D, de donde sale el código.
 
-> **Estado (2026-11-24, v0.2.8):** hay un solo núcleo. El código es el de OGR Slip2D en su commit
+> **Estado (2026-11-24, v0.2.9):** hay un solo núcleo. El código es el de OGR Slip2D en su commit
 > `d48e2b3` (v0.1.471), con su malla y su filtración dentro de `ogr_core/fem/`, más el runner de la
 > suite (`docs/changelog/CHANGELOG_v0.2.0.md` dice de dónde sale cada parte). OGR Slip2D lo adoptó
 > en su v0.1.473 y OGR FEM2D en su v0.0.3; desde entonces **el código de `ogr_core` solo se cambia
