@@ -983,8 +983,12 @@ def _sarma_settings_rows(project, T=_same) -> list:
     rows = [
         # the setting as the Methods page names it: the wedges a surface
         # gets are its own row in Global Minimums (the review of 0.1.468:
-        # both were «Number of Wedges», 25 and 19)
-        (T("Least Number of Wedges"), sa.num_slices),
+        # both were «Number of Wedges», 25 and 19). v0.2.10 (Slip2D D454)
+        # -- the number ASKED FOR, not the least: a surface gets more wedges
+        # where a vertex, a contact or a water-table cut adds a boundary,
+        # and fewer where a division is dropped on a straight stretch of
+        # one Mohr-Coulomb material
+        (T("Number of Wedges Asked For"), sa.num_slices),
         (T("Face Angles"), T(_SARMA_POLICY.get(sa.slice_angles,
                                                sa.slice_angles))),
         (T("Face Strength"), T(_SARMA_STRENGTH.get(sa.interslice_strength,
