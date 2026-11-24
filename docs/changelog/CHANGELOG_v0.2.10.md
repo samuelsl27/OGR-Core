@@ -1,8 +1,5 @@
 # OGR Core v0.2.10
 
-> **En curso.** `main` dice `0.2.10.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
-
 **La fila del informe del número de cuñas de Sarma dice que es el pedido, no el mínimo.**
 «Least Number of Wedges» pasa a «Number of Wedges Asked For», y el docstring de `SarmaSettings`
 dice la regla de las cuñas de OGR Slip2D v0.1.488 (su D454). Es compatible: solo cambia texto, nada
@@ -69,4 +66,9 @@ Lo pidió OGR Slip2D (2026-11-24), después de preparar su suite para las dos fi
 | OGR Slip2D `b02a2d5` (fija `v0.2.7`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `793b812` | 7584 casos: 7582 pasan, 0 fallos, 2 saltados (los de la plataforma), ninguna fuga, código 0. `shared: ogr_core 0.2.10.dev0 … @ 793b812`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (20:40–20:46). Con un `.devN` su suite acepta cualquiera de las dos filas, pero exactamente una: aquí, la nueva |
 | OGR FEM2D `82b4188` (fija `v0.2.9`) **entera**, con `--dev-core`, contra `c0e6387` | 667 de 667, ninguna fuga, código 0. `shared: ogr_core 0.2.10.dev0 … @ c0e6387`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (21:16–21:20) |
 
-`793b812` y `c0e6387` tienen el mismo `ogr_core`: entre los dos solo cambia este changelog.
+`793b812` y `c0e6387` tienen el mismo `ogr_core`: entre los dos solo cambia este changelog. Con
+`main` traído a la rama (`d83e14c`, la fila de OGR FEM2D de la PR 39) tampoco cambia: solo
+`docs/`.
+
+La CI de la PR 38, en ese último commit, en verde en todos sus trabajos, también los dos programas
+contra el núcleo de la PR (Linux) y `pins`.
