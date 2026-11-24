@@ -8,7 +8,7 @@ con la ventana), sin Qt.
 
 [English version](README.md)
 
-> **Última versión publicada: 0.2.9.** El código es el núcleo de
+> **Última versión publicada: 0.2.10.** El código es el núcleo de
 > [OGR Slip2D](https://github.com/samuelsl27/OGR-Slip2D) tal como estaba en ese programa en su commit
 > `d48e2b3` (v0.1.471), con su malla y su filtración por elementos finitos dentro de `ogr_core.fem`.
 > Desde la 0.2.0 hay un solo núcleo para todos los programas de la suite, y se cambia solo aquí.
