@@ -80,5 +80,11 @@ de ejemplo:
 | `tests/test_file_values_v0211.py` | 22 de 22; 12 fallan contra los lectores de la 0.2.10 |
 | Suite del núcleo entera, `--jobs 4` (Windows) | 984 de 984, sin fugas |
 
-**Pendiente (regla 8):** la suite entera de OGR Slip2D contra este árbol, después de que traduzca
-los códigos, y la de OGR FEM2D. No se etiqueta hasta entonces (aquí o junto con D431).
+**La regla 8**, el 2026-11-25 en Windows, contra la rama `d429-lectores` en `0.2.11.dev0`:
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `c6ba3be` (su `3a2e4bb` más las traducciones de §2) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `eec1912` | 7597 casos: 7595 pasan, 0 fallos, 2 saltados, ninguna fuga ni tramo muerto. El censo de D414 no falla por nada más. La corrió la sesión de Slip2D |
+| OGR FEM2D **entera**, con `--dev-core` | Pendiente |
+
+No se etiqueta hasta tener las dos (aquí o junto con D431).
