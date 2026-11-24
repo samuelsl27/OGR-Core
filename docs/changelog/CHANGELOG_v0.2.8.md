@@ -1,8 +1,5 @@
 # OGR Core v0.2.8
 
-> **En curso.** `main` dice `0.2.8.dev0` y esta versión no está etiquetada. Este archivo cuenta lo
-> que ya ha entrado camino de ella.
-
 **El lector DXF lee las entidades en sus propias coordenadas (OCS).** `ARC`, `CIRCLE`,
 `LWPOLYLINE` y la `POLYLINE` 2-D guardan sus coordenadas en el sistema que fija su vector de
 extrusión, y hasta la 0.2.7 el lector las usaba tal cual. Con extrusión (0, 0, −1) se leían
@@ -94,21 +91,39 @@ diría si alguno de sus DXF cambia.
 El último sobrevivió en la primera tanda: con −Z los centros ya salen `float` de la transformación,
 y el test solo lo miraba ahí. Se añadió el caso con +Z.
 
-**La regla 8, sobre el commit `aed77f4`** (la rama `dxf-ocs`, el árbol en `0.2.8.dev0`). El
-2026-11-24, en Windows, las dos a la vez y sin otra corrida de esos programas en la máquina.
+**La regla 8**, el 2026-11-24 en Windows, contra un árbol en `0.2.8.dev0` y sin otra corrida de
+ese programa en la máquina. `aed77f4` (la rama `dxf-ocs`) y `8a62921` (`main` con la PR 32) tienen
+el mismo `ogr_core`: entre los dos solo hay el changelog y la fila de OGR Slip2D en
+`docs/consumidores.md` (PR 31).
 
 | Qué | Resultado |
 |---|---|
-| OGR Slip2D `03b6c2d` (su v0.1.486) **entera** contra ese commit, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7577 casos: 7575 pasan, 0 fallos, 2 saltados (los de la plataforma, como en la 0.2.7), ninguna fuga, código 0. `shared: ogr_core 0.2.8.dev0 … @ aed77f4`, `DEV CORE` antes y después |
-| OGR FEM2D | **pendiente, la corrida no cuenta** (abajo) |
+| OGR Slip2D `03b6c2d` (su v0.1.486) **entera** contra `aed77f4`, con `--jobs 4`, `--dev-core` y fuera de pantalla | 7577 casos: 7575 pasan, 0 fallos, 2 saltados (los de la plataforma, como en la 0.2.7), ninguna fuga, código 0. `shared: ogr_core 0.2.8.dev0 … @ aed77f4`, `DEV CORE` antes y después |
+| OGR FEM2D `9c366ff` (su v0.0.11) **entera** contra `8a62921`, con `--dev-core` | 574 de 574, ninguna fuga, código 0. `shared: ogr_core 0.2.8.dev0 … @ 8a62921`, `DEV CORE` antes y después |
+| CI de la PR 32 | todos los trabajos en verde, también los dos programas contra el núcleo de la PR y `pins` |
 
-**La corrida de OGR FEM2D no cuenta.** Su sesión estaba trabajando en el mismo árbol: la versión
-en 0.0.11 sin commit, y `CHANGELOG_v0.0.11.md`, `ogr_fem2d/results/` y un test nuevo sin guardar,
-sobre su `687470e`. Dio 495 de 496. El que falló es `test_the_changelog_of_this_version_exists`,
-que no encontró `CHANGELOG_v0.0.11.md` y que nada tiene que ver con el núcleo; el archivo apareció
-durante la corrida. Lo corrido no es lo guardado. Se repite cuando su árbol esté limpio.
+**Una primera corrida de OGR FEM2D no cuenta.** Su sesión estaba trabajando en el mismo árbol: la
+versión en 0.0.11 sin commit, y `CHANGELOG_v0.0.11.md`, `ogr_fem2d/results/` y un test nuevo sin
+guardar, sobre su `687470e`. Dio 495 de 496. El que falló es
+`test_the_changelog_of_this_version_exists`, que no encontró `CHANGELOG_v0.0.11.md` y que nada
+tiene que ver con el núcleo; el archivo apareció durante la corrida. Se repitió cuando su sesión
+cerró su v0.0.11 en `9c366ff`. El árbol tenía entonces un solo archivo sin guardar,
+`spec/constitution/guia-de-interfaz.md`, un documento que ningún test lee.
+
+**La primera CI de la PR 32 se puso en rojo en dos trabajos**: `pins` y OGR Slip2D, por la misma
+causa. OGR Slip2D había subido su fijación a `v0.2.7` y la rama aún decía `v0.2.2` en su fila; el
+trabajo de OGR Slip2D se niega a correr así. Se fusionó antes la PR 31, que corrige la fila, y con
+`main` traído a la rama, todo en verde.
+
+El número final se puso en otro `git worktree`, no en el árbol que importaban las corridas (la
+lección de la 0.2.6).
+
+### Sin probar
+
+- **Los programas contra la versión con su número final**: lo de arriba es contra `0.2.8.dev0`.
+  El commit que pone `0.2.8` solo cambia el número y los documentos, y la CI de su PR corre los
+  dos programas contra él.
 
 ## 4. Queda abierto
 
-- La regla 8 y la etiqueta de la 0.2.8.
 - `ELLIPSE` no se lee; se cuenta en `skipped`.
