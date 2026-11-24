@@ -62,4 +62,9 @@ Lo pidió OGR Slip2D (2026-11-24), después de preparar su suite para las dos fi
 | `tests/test_sarma_report_row_v0210.py` | 3 de 3 |
 | Suite del núcleo entera, `--jobs 4` (Windows, Python 3.14.10) | 962 de 962, sin fugas |
 
-**La regla 8**: pendiente.
+**La regla 8**, el 2026-11-24 en Windows, contra la rama `sarma-cunas-pedidas` en `0.2.10.dev0`:
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `b02a2d5` (fija `v0.2.7`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `793b812` | 7584 casos: 7582 pasan, 0 fallos, 2 saltados (los de la plataforma), ninguna fuga, código 0. `shared: ogr_core 0.2.10.dev0 … @ 793b812`, `DEV CORE` antes y después. Su árbol, limpio antes y sin un archivo cambiado durante la corrida (20:40–20:46). Con un `.devN` su suite acepta cualquiera de las dos filas, pero exactamente una: aquí, la nueva |
+| OGR FEM2D | pendiente: su sesión trabaja en su árbol |
