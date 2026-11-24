@@ -32,6 +32,16 @@ circle two. The ends of a bulge are the polyline's own vertices, exactly.
 ``SPLINE`` is still flattened. A mesher that puts its mid-side nodes on the
 boundary needs the true arc, and the flattened chords cannot give it back.
 
+The entity's own coordinates (v0.2.8)
+-------------------------------------
+``ARC``, ``CIRCLE``, ``LWPOLYLINE`` and 2-D ``POLYLINE`` store their
+coordinates in their own system (OCS), set by their extrusion vector. With
+extrusion (0, 0, -1), which a mirror leaves in some CAD, the OCS x is the
+drawing's -x. Their points and centres are taken to the drawing's x and y.
+One whose extrusion leans away from ±Z does not lie in the drawing's plane:
+it is not read, and ``skipped`` counts it as ``"<TYPE> (not in the XY
+plane)"``. ``LINE`` and ``SPLINE`` are in the drawing's coordinates already.
+
 Units
 -----
 The DXF header variable ``$INSUNITS`` is read but treated only as a
@@ -438,6 +448,48 @@ def _polyline_with_bulges(raw, closed, keep_arcs, segments_per_circle):
 
 
 # ======================================================================
+# The entity's own coordinates (OCS)
+# ======================================================================
+class _NotInPlane(Exception):
+    """The entity does not lie in a plane parallel to the drawing's XY."""
+
+
+#: How far from ±Z (in the components of the unit extrusion) an entity's
+#: plane may lean and still count as the drawing's plane. A lean of 1e-9
+#: makes a circle's projection an ellipse whose axes differ by 5e-19.
+PLANE_TOL = 1e-9
+
+
+def _plane_of(e):
+    """The OCS of an ARC, CIRCLE, LWPOLYLINE or 2-D POLYLINE, or None when
+    its coordinates are already the drawing's (extrusion +Z).
+
+    v0.2.8 — those four entities store their coordinates in their own
+    system (the OCS of the DXF reference, from the extrusion vector by the
+    arbitrary axis algorithm), and until v0.2.7 they were read as if they
+    were the drawing's. With extrusion (0, 0, -1), which a mirror leaves in
+    some CAD, the OCS x is the drawing's -x: an ARC about (10, 0) from 0°
+    to 90° was read from (11, 0) to (10, 1) instead of from (-11, 0) to
+    (-10, 1). An extrusion that leans away from ±Z puts the entity out of
+    the drawing's plane: it raises :class:`_NotInPlane`, and the entity is
+    counted in ``skipped``.
+    """
+    ocs = e.ocs()
+    if not ocs.transform:
+        return None
+    uz = ocs.uz
+    if abs(uz.x) > PLANE_TOL or abs(uz.y) > PLANE_TOL:
+        raise _NotInPlane(e.dxftype())
+    return ocs
+
+
+def _ocs_to_wcs(ocs, p):
+    """A point of the entity's plane, in the drawing's x and y."""
+    w = ocs.to_wcs((float(p[0]), float(p[1]), 0.0))
+    return (w.x, w.y)
+
+
+# ======================================================================
 def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
              keep_arcs: bool = False) -> DxfCatalogue:
     """Read a DXF file into a :class:`DxfCatalogue`.
@@ -486,11 +538,17 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
     def _scale(pts):
         return [(x * factor, y * factor) for x, y in pts]
 
-    def _add(layer_name, etype, pts, closed, handle, centres=()):
+    def _add(layer_name, etype, pts, closed, handle, centres=(), ocs=None):
         """``centres[k]`` is the centre of the piece ``pts[k] -> pts[k+1]``
-        when it is an arc, or None."""
+        when it is an arc, or None. ``ocs``, from :func:`_plane_of`, takes
+        the points and the centres from the entity's own coordinates to
+        the drawing's."""
         lay = _layer(layer_name)
         lay.entity_counts[etype] = lay.entity_counts.get(etype, 0) + 1
+        if ocs is not None:
+            pts = [_ocs_to_wcs(ocs, p) for p in pts]
+            centres = [None if c is None else _ocs_to_wcs(ocs, c)
+                       for c in centres]
         pts = _scale(pts)
         # Drop consecutive duplicates: they carry no shape and would
         # produce zero-length segments downstream. The piece that reaches
@@ -503,8 +561,8 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
             if math.dist(p, clean[-1]) > 1e-12:
                 centre = centres[i - 1] if i - 1 < len(centres) else None
                 if centre is not None:
-                    arcs[len(clean) - 1] = (centre[0] * factor,
-                                            centre[1] * factor)
+                    arcs[len(clean) - 1] = (float(centre[0]) * factor,
+                                            float(centre[1]) * factor)
                 clean.append(p)
         if len(clean) < 2:
             cat.skipped["degenerate"] = cat.skipped.get("degenerate", 0) + 1
@@ -541,25 +599,28 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
 
             elif etype == "LWPOLYLINE":
                 raw = list(e.get_points("xyb"))
+                ocs = _plane_of(e)
                 pts, centres = _polyline_with_bulges(
                     raw, bool(e.closed), keep_arcs, segments_per_circle)
                 _add(layer_name, etype, pts, bool(e.closed), handle,
-                     centres)
+                     centres, ocs)
 
             elif etype == "POLYLINE":
                 # v0.2.7 — the bulges of a 2-D POLYLINE were ignored until
                 # v0.2.6, so its arcs came as chords with no warning. A 3-D
                 # polyline or a mesh has no bulges.
                 is_2d = bool(getattr(e, "is_2d_polyline", False))
+                ocs = _plane_of(e) if is_2d else None
                 raw = [(v.dxf.location.x, v.dxf.location.y,
                         float(v.dxf.get("bulge", 0.0)) if is_2d else 0.0)
                        for v in e.vertices]
                 pts, centres = _polyline_with_bulges(
                     raw, bool(e.is_closed), keep_arcs, segments_per_circle)
                 _add(layer_name, etype, pts, bool(e.is_closed), handle,
-                     centres)
+                     centres, ocs)
 
             elif etype == "ARC":
+                ocs = _plane_of(e)
                 if keep_arcs:
                     pts, centres = _arc_entity(
                         e.dxf.center.x, e.dxf.center.y, e.dxf.radius,
@@ -569,9 +630,10 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
                                       e.dxf.radius, e.dxf.start_angle,
                                       e.dxf.end_angle, segments_per_circle)
                     centres = ()
-                _add(layer_name, etype, pts, False, handle, centres)
+                _add(layer_name, etype, pts, False, handle, centres, ocs)
 
             elif etype == "CIRCLE":
+                ocs = _plane_of(e)
                 if keep_arcs:
                     pts, centres = _arc_entity(
                         e.dxf.center.x, e.dxf.center.y, e.dxf.radius,
@@ -581,7 +643,7 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
                                       e.dxf.radius, 0.0, 360.0,
                                       segments_per_circle)
                     centres = ()
-                _add(layer_name, etype, pts, True, handle, centres)
+                _add(layer_name, etype, pts, True, handle, centres, ocs)
 
             elif etype == "SPLINE":
                 # ``flattening`` needs a positive sagitta tolerance; it is
@@ -602,6 +664,9 @@ def read_dxf(path, unit: str = "m", segments_per_circle: int = 64,
 
             else:
                 cat.skipped[etype] = cat.skipped.get(etype, 0) + 1
+        except _NotInPlane:
+            key = f"{etype} (not in the XY plane)"
+            cat.skipped[key] = cat.skipped.get(key, 0) + 1
         except Exception:  # noqa: BLE001
             # A malformed entity must not abort the whole import: it is
             # counted so the problem report can mention it.
