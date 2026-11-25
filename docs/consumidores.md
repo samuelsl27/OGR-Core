@@ -34,6 +34,7 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 
 | Cambio | Para quién | Estado |
 |---|---|---|
+| D431: un patrón del runner que no casa con nada sale con código 2 aunque otros casen (rama `d431-patrones`, 0.2.12) | Los dos | Hecho en la rama, sin etiquetar. Ningún programa tiene que cambiar código (`CHANGELOG_v0.2.12.md`, §2) |
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
 | El lector DXF cuenta `skipped` por capa (en `DxfLayer`, como `entity_counts`), y no solo en todo el dibujo | OGR FEM2D | Sin pedir: no bloquea nada. FEM2D lo usaría para decir de qué capa viene cada entidad que el lector deja fuera (su nota del 2026-11-24 sobre la v0.2.8) |
