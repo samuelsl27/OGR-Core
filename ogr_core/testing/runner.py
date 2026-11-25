@@ -693,6 +693,30 @@ def select_files(tests_dir: Path, patterns) -> list[Path]:
             if any(n in f.stem.lower() for n in wanted)]
 
 
+def unmatched_patterns(tests_dir: Path, patterns) -> list[str]:
+    """The patterns, as they were typed, that select no file at all.
+
+    OGR Core 0.2.12 (D431) -- ``select_files`` is a union, so a pattern that
+    matched nothing beside others that matched something was dropped, said
+    nowhere: OGR Slip2D's 0.1.439 ran 255 cases of 14 files and its
+    changelog said three areas were tested that nobody ran (a misspelled
+    ``support_type``, ``support_dialog``, ``define_support``). ``main``
+    refuses such a run with exit code 2, before it runs anything.
+
+    A pattern that normalises to nothing (``""``, ``"/"``, ``".py"``) is not
+    one of them: it is dropped before matching, as it always was. Alone, it
+    leaves the selection empty and ends in the empty-selection guard; beside
+    a pattern that matches, the run is that pattern's.
+    """
+    every = [f.stem.lower() for f in sorted(tests_dir.glob("test_*.py"))]
+    dead = []
+    for p in patterns:
+        n = _normalise(p)
+        if n and not any(n in stem for stem in every):
+            dead.append(p)
+    return dead
+
+
 def match_test(class_name: str, method_name: str, expr: str | None) -> bool:
     """Whether ``Class.method`` is kept by a ``-k`` expression.
 
@@ -1747,6 +1771,20 @@ def main(tests_dir: Path, patterns=(), k: str | None = None,
     patterns = list(patterns)
     every = sorted(tests_dir.glob("test_*.py"))
     test_files = select_files(tests_dir, patterns)
+    # OGR Core 0.2.12 (D431) -- every pattern has to select something: one
+    # that selects nothing beside others that do is a typo, and the run
+    # would say «tested» of an area nobody ran. When every pattern is dead
+    # the selection is empty, and the guard below says it as it always did.
+    dead = unmatched_patterns(tests_dir, patterns) if test_files else []
+    if dead:
+        print(f"No test file matches {dead} — the other pattern(s) select "
+              f"{len(test_files)} file(s); nothing was run.")
+        near = _suggest(every, dead)
+        if near:
+            print("Did you mean: " + ", ".join(near))
+        print(f"{len(every)} files available — "
+              f"`{prog} --list` shows them all.")
+        return 2
     filtered = bool(patterns) or bool(k) or fast
     left_out = [f for f in test_files if f.name in slow]
     if fast:
