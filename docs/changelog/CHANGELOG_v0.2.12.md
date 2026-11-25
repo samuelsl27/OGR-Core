@@ -1,4 +1,4 @@
-# OGR Core v0.2.12 (sin etiquetar)
+# OGR Core v0.2.12
 
 **Un patrón que no casa con ningún archivo hace salir al runner con código 2, aunque otros patrones
 casen (D431).** Antes el runner lo descartaba sin decir nada, y una errata en una lista de patrones
@@ -63,5 +63,13 @@ del informe tienen que dar `EXIT=2`, y la primera tiene que nombrar `zz_no_casa_
 | `tests/test_runner_dead_pattern_v0212.py` | 12 de 12; 9 fallan contra el runner de la 0.2.11 |
 | Suite del núcleo entera, `--jobs 4` (Windows) | 996 de 996, sin fugas |
 
-**Pendiente (regla 8):** la suite entera de OGR Slip2D y la de OGR FEM2D contra este árbol, con
-`--dev-core`.
+**La regla 8**, el 2026-11-25 en Windows, contra la rama `d431-patrones` en `0.2.12.dev0`:
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `c6ba3be` (fija `v0.2.10`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `574f6e7` | 7597 casos: 7595 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.12.dev0 … @ 574f6e7`, `DEV CORE` antes y después. Su árbol, limpio antes y después (09:11–09:17). La corrió esta sesión |
+| Las dos órdenes del informe, desde Slip2D con `--dev-core` | `--list transient zz_no_casa_d431`: `EXIT=2` y «No test file matches ['zz_no_casa_d431'] — the other pattern(s) select 5 file(s); nothing was run.». `--list zz_no_casa_d431`: `EXIT=2` y el texto de siempre |
+| OGR FEM2D | **No se corrió**: la propietaria la eximió otra vez (2026-11-25), como en la 0.2.11. Su árbol tenía trabajo sin confirmar de su sesión. Su corrida contra esta versión es la de la CI de la PR 45, en Linux, y la de su suite entera cuando suba su fijación |
+
+El commit de la etiqueta tiene el mismo `ogr_core` que `574f6e7`: entre los dos solo cambian este
+changelog, `docs/consumidores.md` y el número de versión.

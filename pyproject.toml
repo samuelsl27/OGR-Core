@@ -8,7 +8,7 @@ name = "ogr-core"
 # The package carried 0.1.0–0.1.37x inside OGR Slip2D before; the changelog
 # of each version says which Slip2D commit it comes from (0.1.0: 2d68c29;
 # 0.2.0: d48e2b3). From 0.2.1 on the core changes here and nowhere else.
-version = "0.2.12.dev0"
+version = "0.2.12"
 description = "OGR Core — shared core of the OpenGeoRock Suite: geometry, materials, project model, DXF, reports, and the finite-element mesh and groundwater seepage"
 readme = "README.md"
 requires-python = ">=3.11"
