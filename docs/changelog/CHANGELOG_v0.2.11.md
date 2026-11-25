@@ -95,8 +95,16 @@ suite de OGR Slip2D en verde y sin la de OGR FEM2D, por dos razones:
 
 Además, su árbol tenía trabajo sin confirmar de su sesión: una corrida ahí no habría medido ningún
 commit suyo. **Cuando FEM2D suba su fijación a esta versión o a una posterior, su suite entera
-contra ella es la que lo comprueba.** La CI de la PR 43 la corre contra el núcleo de la rama, en
-Linux.
+contra ella es la que lo comprueba.**
+
+La CI de la PR 43, en `677173f`, en verde en todos sus trabajos (Linux):
+
+- **OGR FEM2D** (su `main`) contra el núcleo de la PR, entera: pasa. Es la única corrida de FEM2D
+  contra esta versión, y no es la de la regla 8, que se hace en Windows y a mano.
+- **OGR Slip2D** (su `main` en `c6ba3be`) contra el núcleo de la PR, entera: 7597 casos, 7591
+  pasan, 0 fallos, 6 saltados.
+- La primera vez falló en 4 tests de Slip2D porque su `main` en GitHub (`94d2e9a`) todavía no
+  tenía `c6ba3be`, que adapta justo esos 4. Se relanzó cuando Slip2D lo subió.
 
 `ec1bc3b` y el commit de la etiqueta tienen el mismo `ogr_core` que `eec1912`, contra el que corrió
 Slip2D: entre ellos solo cambian este changelog, `docs/consumidores.md` y el número de versión.
