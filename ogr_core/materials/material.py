@@ -45,7 +45,17 @@ def _envelope_to_dict(env) -> Optional[dict]:
     return None
 
 
+#: The kinds of drawdown envelope a file may hold (``_envelope_to_dict``).
+ENVELOPE_KINDS = ("r", "kc1")
+
+
 def _envelope_from_dict(d) -> Optional[object]:
+    """The drawdown envelope a file holds: none when the key is absent, null
+    or ``{}``.
+
+    OGR Core 0.2.11 (D429) -- a kind this build does not know, or an
+    envelope without a kind, is refused by its code: the material was read
+    without an envelope, said nowhere."""
     if not d:
         return None
     from .drawdown_envelopes import Kc1Envelope, REnvelope
@@ -57,7 +67,8 @@ def _envelope_from_dict(d) -> Optional[object]:
     if kind == "kc1":
         return Kc1Envelope(d=float(d.get("d", 0.0)),
                            psi_deg=float(d.get("psi_deg", 0.0)))
-    return None
+    from ..file_messages import value_unknown
+    raise value_unknown("drawdown_envelope.kind", kind, ENVELOPE_KINDS)
 
 
 @dataclass

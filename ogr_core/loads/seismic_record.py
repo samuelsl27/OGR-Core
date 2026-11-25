@@ -129,10 +129,11 @@ class SeismicRecord:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SeismicRecord":
-        try:
-            unit = AccelerationUnit(data.get("source_unit", "g"))
-        except ValueError:
-            unit = AccelerationUnit.G
+        # OGR Core 0.2.11 (D429) -- a unit this build does not know is
+        # refused by its code: it was read as g, said nowhere. Without the
+        # key, the record is in g, as it always was.
+        from ..file_messages import read_enum
+        unit = read_enum(AccelerationUnit, data.get("source_unit", "g"))
         rec = cls(
             name=data.get("name", DEFAULT_RECORD_NAME),
             dt=float(data.get("dt", 0.02)),
