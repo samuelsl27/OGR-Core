@@ -146,3 +146,82 @@ Nada.
   - su `_do_delete_boundary` ya pasa el objeto (`RemoveBoundaryCommand(boundary=b)`): no tiene que
     cambiar. El borrado del agente (`boundary_edit`, `op="delete"`) quita por índice y tampoco.
 - **OGR FEM2D**: nada obligatorio. Si abre `.ogr` de Slip2D, puede mostrar `read_notes`.
+
+## D443 — convertir un contorno que usan materiales (decisión B)
+
+### Lo que se encontró
+
+- `convert_boundary` copia el contorno con otro tipo y el mismo `id`. `Material.water_surface_id`
+  y `Material.anisotropic_surface_id` se quedaban como estaban, y sus lectores filtran por tipo
+  (`resolve_water_surface`, `material_surfaces`). En el talud de ejemplo, el nivel freático
+  convertido en línea piezométrica dejaba u en (25; 0,5) en 0 kPa, cuando antes era 73,6, y el
+  modelo seguía calculando. El test nuevo lo reproduce (`test_without_the_rule_it_was_zero`).
+- La limpieza de enlaces al borrar vivía en el agente de Slip2D (`ogr_api/ops/model.py`), no en el
+  núcleo.
+- **Encontrado al escribirlo, y aplicado como parte de la regla B** («se trata como borrar el
+  contorno»): borrar una superficie anisótropa que lee una junta de un material Generalized
+  Anisotropic se rechaza (`surface_in_use_refusal`, desde Slip2D 0.1.249), pero convertirla en
+  otro tipo no se rechazaba, y la junta se quedaba sin orientación. Ahora `conversion_refusal`
+  la rechaza igual que el borrado.
+- **Sin cambiar, para que lo decida la propietaria**: un material con el modelo de nivel freático
+  y **sin** `water_surface_id` lee el primer nivel freático del modelo (`resolve_water_surface`,
+  la vuelta atrás heredada). Si ese nivel freático se convierte en línea piezométrica, el material
+  pierde su presión de poros igual que antes, porque no está enlazado por `id` y la regla no lo
+  ve. La regla B habla de los materiales enlazados.
+
+### Qué cambia
+
+- `ogr_core/project/rules.py`:
+  - `conversion_link_changes(project, boundary_id, new_type)` devuelve qué haría la conversión
+    con los enlaces, sin hacerlo. Es una lista de `LinkChange(material_id, material_name, link,
+    change)`, con `link` igual a `"water_surface"` o `"anisotropic_surface"` y `change` igual a
+    `"followed"` o `"cleared"`.
+    - Nivel freático ↔ línea piezométrica: el enlace sigue, y el modelo de poros pasa al del tipo
+      nuevo.
+    - Cualquier otro tipo: el enlace de agua se limpia y los poros pasan a `NONE`. El enlace
+      anisótropo se limpia si el tipo nuevo no es una superficie anisótropa.
+    - Solo los enlaces que el material lee. Un `water_surface_id` bajo Ru, una constante o un
+      campo de elementos finitos no es de la conversión.
+  - `relink_on_conversion(project, boundary, new_type)` aplica eso a los materiales y devuelve los
+    cambios. **No sustituye el contorno**: eso lo hace quien llama, en su propio paso de deshacer.
+  - `removal_link_changes(project, boundary_id)` y `unlink_on_removal(project, boundary_id)` son
+    lo mismo para el borrado. `unlink_on_removal` quita también un `water_surface_id` que el
+    material no lee, sin cambiarle el modelo, como hacía el agente. Una conversión sin lector y un
+    borrado dan los mismos cambios, y un test lo comprueba.
+  - `stale_surface_links(project)` da los avisos con código de los enlaces a un contorno de un
+    tipo que no los lee, los que puede traer un `.ogr` viejo (`rule.stale_water_link` y
+    `rule.stale_anisotropic_link`).
+  - `conversion_refusal` rechaza convertir una superficie anisótropa que lee una junta.
+- `ogr_core/project/messages.py`, en `RULES`, los dos avisos:
+
+  ```
+  The material '{material}' takes its water surface from {boundary}, which its pore-pressure model does not read: assign it a water surface again.
+  The material '{material}' takes its anisotropic surface from {boundary}, which is not an anisotropic surface: its strength does not read it.
+  ```
+- `tests/test_conversion_links_v0214.py`: 14 tests.
+  - u en (25; 0,5) tras convertir el nivel freático en línea piezométrica es la solución
+    hidrostática bajo la línea horizontal, γw·(8 − 0,5) = 73,6 kPa. Es también lo que da un
+    material puesto con `assign_water_surface` en la misma línea: **medido**.
+  - La ida y vuelta nivel freático → línea piezométrica → nivel freático devuelve la u de
+    partida.
+  - Una superficie anisótropa convertida en capa débil, y un nivel freático convertido en capa
+    débil, limpian el enlace.
+  - Un enlace que el material no lee se queda como está.
+  - El borrado da los mismos cambios que la conversión sin lector.
+  - Los avisos de los enlaces viejos salen con su texto.
+  - La junta rechaza la conversión.
+
+### Lo que tiene que cambiar cada programa (regla 10)
+
+- **OGR Slip2D**:
+  - en los dos Convertir de la ventana (`_apply_conversion`) y en el `change_type` del agente,
+    llamar a `relink_on_conversion` en el mismo paso de deshacer que sustituye el contorno, y
+    escribir la nota de cada cambio. Para `cleared`, los textos de borrar; para `followed`, uno
+    nuevo;
+  - en el borrado del agente, usar `unlink_on_removal` en lugar de su limpieza propia, y en el de
+    la ventana igual;
+  - llevar `stale_surface_links(project)` a `project_validate` como avisos;
+  - las muestras de los dos códigos nuevos en `test_core_messages_v1333.py` y su castellano;
+  - el rechazo nuevo de `conversion_refusal` (la junta) llega por el camino que ya tienen los dos
+    Convertir.
+- **OGR FEM2D**: nada.

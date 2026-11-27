@@ -53,6 +53,10 @@ BOUNDARY_LABEL = "rule.boundary_label"
 BOUNDARY_LABEL_NAMED = "rule.boundary_label_named"
 USER_CIRCLE_LABEL = "rule.user_circle_label"
 USER_POLYLINE_LABEL = "rule.user_polyline_label"
+# OGR Core 0.2.14 (D443 of OGR Slip2D) -- a material's link to a boundary
+# of a type that does not read it
+STALE_WATER_LINK = "rule.stale_water_link"
+STALE_ANISOTROPIC_LINK = "rule.stale_anisotropic_link"
 
 _REREAD = (
     "The {label} projection angles are written from {start:g}° to {end:g}°, "
@@ -176,6 +180,18 @@ RULES = {s.code: s for s in (
                 kinds=(("kind", "label"),)),
     MessageSpec(USER_CIRCLE_LABEL, "user circle #{n}"),
     MessageSpec(USER_POLYLINE_LABEL, "user polyline #{n}"),
+    # OGR Core 0.2.14 (D443) -- an old file can bring them: a conversion
+    # before this version left the link as it was
+    MessageSpec(STALE_WATER_LINK,
+                "The material '{material}' takes its water surface from "
+                "{boundary}, which its pore-pressure model does not read: "
+                "assign it a water surface again.",
+                group_by=("boundary",)),
+    MessageSpec(STALE_ANISOTROPIC_LINK,
+                "The material '{material}' takes its anisotropic surface "
+                "from {boundary}, which is not an anisotropic surface: its "
+                "strength does not read it.",
+                group_by=("boundary",)),
 )}
 
 
