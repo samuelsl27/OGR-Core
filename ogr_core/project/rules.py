@@ -139,6 +139,17 @@ def conversion_refusal(project, boundary, new_type) -> Optional[Refusal]:
         return why
     if new_type == BoundaryType.EXTERNAL and not boundary.polyline.closed:
         return Refusal("external_not_closed", EXTERNAL_NOT_CLOSED)
+    # OGR Core 0.2.14 (D443) -- an anisotropic surface a joint of a
+    # Generalized Anisotropic material reads is converted into something
+    # else only as it is deleted: after the joints are changed. A
+    # conversion that leaves a link with no reader is a deletion for that
+    # link (``conversion_link_changes``), and a joint has nothing to fall
+    # back on.
+    if (boundary.btype == BoundaryType.ANISOTROPIC_SURFACE
+            and new_type != BoundaryType.ANISOTROPIC_SURFACE):
+        why = surface_in_use_refusal(project, boundary.id)
+        if why is not None:
+            return why
     return None
 
 
@@ -1918,4 +1929,200 @@ def renew_repeated_polyline_ids(project) -> list:
             boundary_label(project, b) for b in group]))
         for b in group[1:]:
             b.polyline.id = str(uuid4())
+    return notes
+
+
+# ----------------------------------------------------------------------
+# OGR Core 0.2.14 (D443 of OGR Slip2D) -- the links of the materials when
+# the boundary they point at is converted or deleted
+# ----------------------------------------------------------------------
+#: The kinds of link a material has to a boundary.
+WATER_SURFACE_LINK = "water_surface"
+ANISOTROPIC_SURFACE_LINK = "anisotropic_surface"
+#: What became of one: it follows the boundary into its new type, or it is
+#: cleared as a deletion clears it.
+FOLLOWED = "followed"
+CLEARED = "cleared"
+
+#: The pore-pressure model that reads each type of water surface.
+_WATER_MODELS = {BoundaryType.WATER_TABLE: "water_table",
+                 BoundaryType.PIEZOMETRIC: "piezometric"}
+
+
+@dataclass(frozen=True)
+class LinkChange:
+    """What a conversion or a deletion did to one link of one material: the
+    material (its id and its name, for the program's note), the link
+    (:data:`WATER_SURFACE_LINK` or :data:`ANISOTROPIC_SURFACE_LINK`) and
+    the change (:data:`FOLLOWED` or :data:`CLEARED`)."""
+
+    material_id: str
+    material_name: str
+    link: str
+    change: str
+
+
+def _water_model(btype):
+    """The pore-pressure model that reads a water surface of ``btype``, or
+    None for a type no model reads as one."""
+    from ..materials import PorePressureType
+    value = _WATER_MODELS.get(btype)
+    return None if value is None else PorePressureType(value)
+
+
+def _surface_models():
+    from ..materials import PorePressureType
+    return (PorePressureType.WATER_TABLE, PorePressureType.PIEZO_LINE)
+
+
+def conversion_link_changes(project, boundary_id, new_type) -> list:
+    """What converting the boundary ``boundary_id`` into ``new_type`` does to
+    the links of the materials, without doing it: a list of
+    :class:`LinkChange`.
+
+    The rule (the owner's decision B, 2026-11-27):
+
+    * a water table into a piezometric line, or back: the link FOLLOWS, and
+      the pore-pressure model of the material goes to the one of the new
+      type, the choice :func:`assign_water_surface` makes (the agent's
+      ``material_set``: «pore_pressure follows the surface»);
+    * any other conversion that leaves a link with no reader is a deletion
+      for that link (:func:`removal_link_changes`): the water surface is
+      CLEARED and its model goes to none, and the anisotropic surface is
+      cleared when the new type is not an anisotropic surface.
+
+    Only the links a material reads: a water surface id under a model that
+    is not a water surface's (Ru, a constant, a finite-element field) was
+    never the conversion's to set, and stays. A conversion into the same
+    type changes nothing.
+    """
+    new_type = BoundaryType(new_type) if not isinstance(
+        new_type, BoundaryType) else new_type
+    model = _water_model(new_type)
+    out = []
+    for m in project.materials:
+        if m.water_surface_id == boundary_id and (
+                m.pore_pressure in _surface_models()):
+            if model is None:
+                out.append(LinkChange(m.id, m.name, WATER_SURFACE_LINK,
+                                      CLEARED))
+            elif m.pore_pressure != model:
+                out.append(LinkChange(m.id, m.name, WATER_SURFACE_LINK,
+                                      FOLLOWED))
+        if (getattr(m, "anisotropic_surface_id", None) == boundary_id
+                and new_type != BoundaryType.ANISOTROPIC_SURFACE):
+            out.append(LinkChange(m.id, m.name, ANISOTROPIC_SURFACE_LINK,
+                                  CLEARED))
+    return out
+
+
+def removal_link_changes(project, boundary_id) -> list:
+    """What deleting the boundary ``boundary_id`` does to the links of the
+    materials, without doing it: every link to it is CLEARED, and a water
+    surface takes its model to none with it. A water surface id under a
+    model that does not read it is dropped too, without a change of model
+    and without a :class:`LinkChange` (nothing the material read moved),
+    as the agent's deletion always did."""
+    out = []
+    for m in project.materials:
+        if m.water_surface_id == boundary_id and (
+                m.pore_pressure in _surface_models()):
+            out.append(LinkChange(m.id, m.name, WATER_SURFACE_LINK, CLEARED))
+        if getattr(m, "anisotropic_surface_id", None) == boundary_id:
+            out.append(LinkChange(m.id, m.name, ANISOTROPIC_SURFACE_LINK,
+                                  CLEARED))
+    return out
+
+
+def _apply_link_changes(project, boundary_id, new_type, changes) -> None:
+    from ..materials import PorePressureType
+    by_id = {m.id: m for m in project.materials}
+    for c in changes:
+        m = by_id.get(c.material_id)
+        if m is None:
+            continue
+        if c.link == WATER_SURFACE_LINK:
+            if c.change == FOLLOWED:
+                m.water_surface_id = boundary_id
+                m.pore_pressure = _water_model(new_type)
+            else:
+                m.water_surface_id = None
+                m.pore_pressure = PorePressureType.NONE
+        elif c.link == ANISOTROPIC_SURFACE_LINK:
+            m.anisotropic_surface_id = None
+
+
+def relink_on_conversion(project, boundary, new_type) -> list:
+    """Apply to the materials what converting ``boundary`` into ``new_type``
+    does to their links (:func:`conversion_link_changes`), and return the
+    changes.
+
+    OGR Core 0.2.14 (D443 of OGR Slip2D). ``convert_boundary`` keeps the
+    id, and the links stayed as they were while their readers filter by
+    type: the water table of the demo slope converted into a piezometric
+    line left u at (25, 0.5) at 0 kPa, where it was 73.6, and the model
+    still computed. This sets the MATERIALS only: the caller replaces the
+    boundary by its converted copy, in its own undo step, before or after
+    (the model a link follows into is chosen by ``new_type``, not looked
+    up). The window and the agent both ask it, so the two doors say the
+    same; the program writes the notes from the changes.
+    """
+    changes = conversion_link_changes(project, boundary.id, new_type)
+    new_type = BoundaryType(new_type) if not isinstance(
+        new_type, BoundaryType) else new_type
+    _apply_link_changes(project, boundary.id, new_type, changes)
+    if changes:
+        project._notify("materials_changed")
+    return changes
+
+
+def unlink_on_removal(project, boundary_id) -> list:
+    """Clear every link of the materials to the boundary ``boundary_id``,
+    which is being deleted, and return the changes
+    (:func:`removal_link_changes`).
+
+    OGR Core 0.2.14 (D443) -- the deletion's half of the rule, so deleting
+    and converting say the same: until this version it lived in the agent
+    (``ogr_api.ops.model``, ``boundary_edit`` with ``op="delete"``), which
+    cleared the water surface through :func:`assign_water_surface` and the
+    anisotropic surface by hand. Whether the boundary may be deleted at all
+    is :func:`surface_in_use_refusal`, asked first.
+    """
+    changes = removal_link_changes(project, boundary_id)
+    _apply_link_changes(project, boundary_id, None, changes)
+    for m in project.materials:
+        if m.water_surface_id == boundary_id:
+            m.water_surface_id = None
+    if changes:
+        project._notify("materials_changed")
+    return changes
+
+
+def stale_surface_links(project) -> list:
+    """The coded notes of the materials that point at a boundary of a type
+    their link's reader does not read (OGR Core 0.2.14, D443).
+
+    A conversion before this version left the link as it was, so an old
+    ``.ogr`` can bring one: a material on the water-table model whose water
+    surface is now a piezometric line or a weak layer, or one whose
+    anisotropic surface is now a weak layer. A link to a boundary that is
+    not in the model is not this note's. For a program's validation, as a
+    warning: the model computes, without the pore pressure or the surface
+    the user set.
+    """
+    by_id = {}
+    for b in project.boundaries:
+        by_id.setdefault(b.id, b)
+    notes = []
+    for m in project.materials:
+        b = by_id.get(m.water_surface_id) if m.water_surface_id else None
+        if b is not None and m.pore_pressure in _surface_models() and (
+                _water_model(b.btype) != m.pore_pressure):
+            notes.append(_msg(M.STALE_WATER_LINK, material=m.name,
+                              boundary=boundary_label(project, b)))
+        aid = getattr(m, "anisotropic_surface_id", None)
+        b = by_id.get(aid) if aid else None
+        if b is not None and b.btype != BoundaryType.ANISOTROPIC_SURFACE:
+            notes.append(_msg(M.STALE_ANISOTROPIC_LINK, material=m.name,
+                              boundary=boundary_label(project, b)))
     return notes
