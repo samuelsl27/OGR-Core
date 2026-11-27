@@ -1094,6 +1094,24 @@ class BackAnalysisSettings:
     Deliberately independent of the main analysis: the reference states
     that the computed force is NOT included in, and does not affect, the
     stability results in any way.
+
+    The force is HORIZONTAL on purpose, and has no angle (OGR Core 0.2.14,
+    D433 of OGR Slip2D, the owner's decision of 2026-11-27). The reference
+    lets it lean; this does not, for two reasons:
+
+    * no published case asks for an angle: the only model of the bench
+      with a back analysis gives a concentrated force at a third of the
+      slope height, and no angle;
+    * an anchor or a wall acting at an elevation, with its inclination, is
+      modelled with a real support, which already has an angle and enters
+      the equilibrium of the slice that receives it.
+
+    An inclined force is not a projection of this one: its vertical
+    component changes the normal on the base of the slice that receives it,
+    and its moment needs a point of application, not only an elevation.
+    That would be a new formulation, taken from its source (Bishop, 1955;
+    Janbu, 1954, with an inclined external load) and validated against the
+    closed solution of a plane wedge, not an extra field here.
     """
 
     enabled: bool = False              # "compute reinforcement load"
