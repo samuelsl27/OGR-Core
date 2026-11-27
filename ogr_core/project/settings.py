@@ -1190,11 +1190,17 @@ class SeismicAnalysisSettings:
 
     They share a search objective and that is not a shortcut: the
     displacement of a rigid block is non-increasing in the critical
-    acceleration, so the surface that moves most is the surface with the
-    lowest Ky. Turning on ``newmark`` therefore turns on the Ky solve too,
-    and :meth:`objective` says so in one place instead of two.
+    acceleration (Newmark, 1965), so the surface that moves most is the
+    surface with the lowest Ky. Turning on ``newmark`` therefore turns on the
+    Ky solve too, and :meth:`objective` says so in one place instead of two.
 
-    v0.1.127.
+    Except with ``allow_upslope``: the displacement is then a net one
+    (downslope minus upslope) and the premise fails -- a surface of a higher
+    Ky can move more. The search still minimises Ky, but the surface the
+    run publishes as critical is the one of the LARGEST net displacement
+    (OGR Slip2D 0.1.499, its D437; the result says so with ``net_newmark``).
+
+    v0.1.127; the upslope exception, OGR Core v0.2.13.
     """
 
     # Critical seismic coefficient for every surface.

@@ -494,13 +494,15 @@ def generate_report(
         # v0.1.449 (D408) — the number at the head is the one the run
         # minimised (``reported_caption``, asked of the result): on a Ky run
         # the critical surface is the one with the lowest Ky, and on a
-        # Newmark run the one that moves the most, and its factor need not be
+        # Newmark run the one that moves the most (the lowest Ky; with upslope
+        # sliding, since Slip2D 0.1.499, the largest NET displacement, which
+        # the result says with ``net_newmark``), and its factor need not be
         # the lowest. The block wrote that factor under «Over-design Factor»
         # as if it were the minimum (1.5463 on the demo slope with c = 20 kPa
         # and a standard of 1.05, where the lowest admissible factor is
         # 1.4559), and neither the Ky nor the displacement anywhere.
         caption = reported_caption(res, factor_report)
-        seismic_head = _seismic_rows(crit, caption, project, T)
+        seismic_head = _seismic_rows(crit, caption, project, T, res=res)
         rows = seismic_head or [(fs_label, _fmt(crit.fos, 4))]
         # v0.1.448 (D404) — whose the surface is, when the user drew it: the
         # critical surface competes over every surface the run analysed
@@ -707,7 +709,7 @@ def _same(text):
     return text
 
 
-def _seismic_rows(crit, caption, project, T=_same) -> list:
+def _seismic_rows(crit, caption, project, T=_same, res=None) -> list:
     """The head rows of a method's «Global Minimums» block on a Ky or a
     Newmark run (v0.1.449, D408), empty on any other run.
 
@@ -715,13 +717,22 @@ def _seismic_rows(crit, caption, project, T=_same) -> list:
     (``ogr_gui.reported_quantity``): the Newmark displacement first when the
     run integrated one, in the project's unit (``displacement_in_units``, as
     Interpret prints it); the critical seismic coefficient; and a row that
-    says why this surface is the critical one: of this method's surfaces,
-    it has the lowest Ky, which is what the search minimises under both
-    modes (``surface_score``). It does not say that the surface moves the
-    most: with upslope sliding allowed the displacement is a net one and
-    does not decrease with the Ky (the review of 0.1.449 measured surfaces
-    of a higher Ky that move more). The factor of the surface follows, as a
-    datum of it."""
+    says why this surface is the critical one. Of this method's surfaces it
+    is, on most runs, the one with the lowest Ky, which is what the search
+    minimises under both modes (``surface_score``) and, without upslope
+    sliding, the one that moves the most: the displacement of a rigid block
+    does not increase with its critical acceleration (Newmark, 1965). With
+    upslope sliding allowed the displacement is a net one (downslope minus
+    upslope) and that premise fails, so since OGR Slip2D 0.1.499 (its D437)
+    such a run publishes the surface of the LARGEST net displacement and
+    says so on the result (``net_newmark``, asked with ``getattr`` as
+    ``reported_caption`` asks ``objective``: the core does not import the
+    engine); the row then says that. The factor of the surface follows, as
+    a datum of it.
+
+    v0.2.13 — ``res``, the method's result, to ask it which surface it
+    published. ``None`` (or a result without the field) is the lowest-Ky
+    row of always."""
     if caption not in (KY, NEWMARK):
         return []
     details = getattr(crit, "details", None) or {}
@@ -732,8 +743,13 @@ def _seismic_rows(crit, caption, project, T=_same) -> list:
         rows.append((T("Newmark displacement"), "%.3f %s" % (value, unit)))
     rows.append((T("Critical seismic coefficient"),
                  _fmt(details.get("ky"), 4)))
-    rows.append((T("Critical surface"),
-                 T("the one with the lowest Ky of this method")))
+    if getattr(res, "net_newmark", False):
+        rows.append((T("Critical surface"),
+                     T("the one with the largest net Newmark displacement "
+                       "of this method")))
+    else:
+        rows.append((T("Critical surface"),
+                     T("the one with the lowest Ky of this method")))
     return rows
 
 

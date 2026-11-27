@@ -12,8 +12,10 @@ how v0.1.165 (D96) found six captions saying four different things.
 v0.1.449 (D408) — and it moved here, to the core, for a third caller that
 cannot import the engine: the PDF report (``ogr_core.report``), which wrote
 ``critical.fos`` under «Over-design Factor» on a Ky or a Newmark run, where
-the critical surface is the one of the lowest Ky and its factor need not be
-the lowest. ``ogr_slip2d.reported`` re-exports every name, so the engine,
+the critical surface is the one of the lowest Ky -- or, on a Newmark run
+with upslope sliding allowed, the one of the largest NET displacement (OGR
+Slip2D 0.1.499, its D437; the result says so with ``net_newmark``) -- and
+its factor need not be the lowest. ``ogr_slip2d.reported`` re-exports every name, so the engine,
 the API, the command line and the window ask the same rule as before.
 
 The question is asked of the RESULT and of the run's factor report, never
