@@ -78,3 +78,71 @@ Nada.
 - **OGR Slip2D**: solo tests, si alguno fija un texto del informe con un entero sin decimales. Lo
   dirá su corrida con `--dev-core` (sección de pruebas).
 - **OGR FEM2D**: nada; no usa el informe.
+
+## D445 — `id` repetidos al leer, y Borrar por identidad
+
+### Lo que se encontró
+
+- `Project.from_dict` aceptaba sin decir nada dos `Boundary.id` iguales, dos `Polyline.id` iguales
+  (todo `.ogr` con un Copiar contorno guardado entre Slip2D 0.1.59 y 0.1.455, su D425) y dos `id`
+  de superficie del usuario iguales.
+- `Project.remove_boundary(bid)` quitaba **todos** los contornos con ese `id`, y
+  `RemoveBoundaryCommand.execute` guardaba el índice del **primero** con el `id`
+  (`ids.index(self.boundary.id)`), no el del objeto. Con dos contornos de un mismo `id`, Borrar
+  quitaba los dos y Deshacer devolvía uno, en el sitio del primero. Medido por Slip2D en su
+  0.1.485: quedan 0 de 2, y deshacer devuelve 1 de 2.
+- `AddBoundaryCommand.undo` también quitaba por `id`: deshacer el añadido de un contorno con el
+  `id` de otro quitaba los dos.
+- Nadie lee `Polyline.id` (ni el núcleo ni los programas, salvo para copiarlo).
+- El núcleo no tenía ningún camino para que la lectura dijera algo sin rechazar el archivo.
+
+### Qué cambia
+
+- `Project.read_notes`: lista nueva de notas con código (`Coded`) que rellena `from_dict` y que no
+  se guarda. Vacía en un modelo construido de otro modo.
+- `ogr_core/project/rules.py`:
+  - `duplicate_id_notes(project)`: una nota por cada `Boundary.id` repetido
+    (`rule.duplicate_boundary_id`) y por cada `id` repetido entre las superficies del usuario, círculos y
+    polilíneas juntos (`rule.duplicate_user_surface_id`). No renueva nada: los enlaces leen esos `id`.
+    La lectura la pregunta, y un programa puede preguntarla también en su validación.
+  - `renew_repeated_polyline_ids(project)`: da un `id` nuevo a cada polilínea de contorno cuyo
+    `id` ya tiene otra anterior. La primera conserva el suyo. Devuelve una nota por `id`
+    (`rule.polyline_id_renewed`).
+  - `boundary_label(project, boundary)`: el contorno nombrado en una nota. Lleva su nombre si tiene
+    uno propio (`boundary_has_given_name`), su tipo y su posición entre los de su tipo, contada
+    desde 1.
+- `ogr_core/project/messages.py`, en `RULES`: los tres códigos y sus cuatro etiquetas
+  (`rule.boundary_label`, `rule.boundary_label_named`, `rule.user_circle_label` y
+  `rule.user_polyline_label`). Los textos ingleses:
+
+  ```
+  The boundaries {boundaries} share the id '{id}': whatever refers to that id (the water surface or the anisotropic surface of a material, a support, a face of Sarma's method) may read either of them.
+  The user surfaces {surfaces} share the id '{id}': whatever refers to that id may read either of them.
+  The boundaries {boundaries} shared the polyline id '{id}'; it was renewed on reading for all but the first. Nothing reads it, so the model is the same.
+  {kind} #{n}
+  '{name}' ({kind} #{n})
+  user circle #{n}
+  user polyline #{n}
+  ```
+- `Project.remove_boundary(boundary)`: quita **un** contorno, el objeto dado (por identidad) o,
+  si se le da un `id`, el primero con ese `id`.
+- `RemoveBoundaryCommand.execute` guarda el índice del objeto y quita el objeto. Si el objeto ya no
+  está en el modelo (un modelo restaurado de una copia), quita el primero con su `id`, uno solo.
+  `undo` lo devuelve a ese sitio. `AddBoundaryCommand.undo` quita su objeto.
+- `tests/test_duplicate_ids_v0214.py`: 13 tests. Son los dos casos del guion de Slip2D
+  (`_auditoria/P10_D445/medir_d445.py`): Borrar deja 1 de 2 y Deshacer lo devuelve a su sitio, el
+  segundo y también el primero. A ellos se suman dos superficies del usuario con un mismo `id`,
+  un círculo y una polilínea con un mismo `id`, y un archivo sin repetidos que no cambia ni un bit
+  al leer y guardar. Contra el núcleo de antes fallan 12.
+
+### Lo que tiene que cambiar cada programa (regla 10)
+
+- **OGR Slip2D**:
+  - mostrar `project.read_notes` al abrir un `.ogr`, en la ventana y en el `project_open` del
+    agente;
+  - llevar `duplicate_id_notes(project)` a `project_validate` como avisos;
+  - en `tests/test_core_messages_v1333.py`, una muestra de los siete códigos nuevos de `RULES`, y su
+    castellano en el diccionario;
+  - su `_do_delete_boundary` ya pasa el objeto (`RemoveBoundaryCommand(boundary=b)`): no tiene que
+    cambiar. El borrado del agente (`boundary_edit`, `op="delete"`) quita por índice y tampoco.
+- **OGR FEM2D**: nada obligatorio. Si abre `.ogr` de Slip2D, puede mostrar `read_notes`.

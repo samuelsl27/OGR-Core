@@ -126,6 +126,13 @@ class Project:
         # opening the file at the first polyline, while an unknown top-level
         # key is simply not read.
         self.user_polylines = []
+        # OGR Core 0.2.14 (D445 of OGR Slip2D) -- what reading the file
+        # found and said nothing of: a list of coded notes
+        # (``ogr_core.messages.Coded``), filled by ``from_dict`` and empty on
+        # a model built any other way. Never saved (``to_dict`` writes named
+        # fields): it is about the file this model was read from, and a
+        # program shows it when it opens the file.
+        self.read_notes: list = []
 
         # v0.1.236 (D93) — True only on the copy ``apply_design_factors``
         # returns, never on a model the user edits. Not saved (``to_dict``
@@ -287,8 +294,21 @@ class Project:
         self.boundaries.append(b)
         self._notify("boundary_added")
 
-    def remove_boundary(self, bid: str) -> None:
-        self.boundaries = [b for b in self.boundaries if b.id != bid]
+    def remove_boundary(self, boundary) -> None:
+        """Remove ONE boundary: ``boundary`` itself, by identity, or the
+        first boundary with that id when given an id.
+
+        OGR Core 0.2.14 (D445 of OGR Slip2D) -- it removed every boundary
+        with the id, so in a file holding two boundaries with the same id
+        Delete took both away and Undo gave one back."""
+        if isinstance(boundary, str):
+            idx = next((i for i, b in enumerate(self.boundaries)
+                        if b.id == boundary), None)
+        else:
+            idx = next((i for i, b in enumerate(self.boundaries)
+                        if b is boundary), None)
+        if idx is not None:
+            del self.boundaries[idx]
         self._notify("boundary_removed")
 
     def add_material(self, m: Material) -> None:
@@ -1015,6 +1035,14 @@ class Project:
             proj.transient_results = [_restore(d) for d in trs]
             if tir:
                 proj.transient_initial_result = _restore(tir)
+
+        # OGR Core 0.2.14 (D445 of OGR Slip2D) -- the ids two items share,
+        # said and never refused: a repeated polyline id is renewed (nothing
+        # reads it), a repeated boundary or user-surface id only said (the
+        # links read it). Last, once every list is read.
+        from .rules import duplicate_id_notes, renew_repeated_polyline_ids
+        proj.read_notes = (renew_repeated_polyline_ids(proj)
+                           + duplicate_id_notes(proj))
 
         if path:
             proj.file_path = path

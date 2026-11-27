@@ -45,6 +45,14 @@ MIGRATION_FRAME = "rule.migration_frame"
 MIGRATION_TOE_ANGLE_LOWER = "rule.migration_toe_angle_lower"
 MIGRATION_TOE_ANGLE_UPPER = "rule.migration_toe_angle_upper"
 MIGRATION_PATH_OPTIMIZE = "rule.migration_path_optimize"
+# OGR Core 0.2.14 (D445 of OGR Slip2D) -- an id two items of a file share
+DUPLICATE_BOUNDARY_ID = "rule.duplicate_boundary_id"
+DUPLICATE_USER_SURFACE_ID = "rule.duplicate_user_surface_id"
+POLYLINE_ID_RENEWED = "rule.polyline_id_renewed"
+BOUNDARY_LABEL = "rule.boundary_label"
+BOUNDARY_LABEL_NAMED = "rule.boundary_label_named"
+USER_CIRCLE_LABEL = "rule.user_circle_label"
+USER_POLYLINE_LABEL = "rule.user_polyline_label"
 
 _REREAD = (
     "The {label} projection angles are written from {start:g}° to {end:g}°, "
@@ -144,6 +152,30 @@ RULES = {s.code: s for s in (
                 "the Optimize Surfaces checkbox, which is UNTICKED here, so "
                 "this run does not optimise. Tick it to get the old "
                 "behaviour."),
+    # OGR Core 0.2.14 (D445) -- notes, never refusals: an old file opens.
+    # The items are named as nested messages (a name the user gave as it
+    # is, a kind through its translation) with their position among the
+    # items of their kind, counted from 1.
+    MessageSpec(DUPLICATE_BOUNDARY_ID,
+                "The boundaries {boundaries} share the id '{id}': whatever "
+                "refers to that id (the water surface or the anisotropic "
+                "surface of a material, a support, a face of Sarma's method) "
+                "may read either of them.",
+                group_by=("boundaries",)),
+    MessageSpec(DUPLICATE_USER_SURFACE_ID,
+                "The user surfaces {surfaces} share the id '{id}': whatever "
+                "refers to that id may read either of them.",
+                group_by=("surfaces",)),
+    MessageSpec(POLYLINE_ID_RENEWED,
+                "The boundaries {boundaries} shared the polyline id '{id}'; "
+                "it was renewed on reading for all but the first. Nothing "
+                "reads it, so the model is the same.",
+                group_by=("boundaries",)),
+    MessageSpec(BOUNDARY_LABEL, "{kind} #{n}", kinds=(("kind", "label"),)),
+    MessageSpec(BOUNDARY_LABEL_NAMED, "'{name}' ({kind} #{n})",
+                kinds=(("kind", "label"),)),
+    MessageSpec(USER_CIRCLE_LABEL, "user circle #{n}"),
+    MessageSpec(USER_POLYLINE_LABEL, "user polyline #{n}"),
 )}
 
 
