@@ -70,7 +70,7 @@ _SINGLE_INSTANCE = {
 
 
 def boundary_refusal(project, btype: BoundaryType, *,
-                     ignoring=None) -> Optional[Refusal]:
+                     ignoring=None, polyline=None) -> Optional[Refusal]:
     """Why a new boundary of type ``btype`` cannot be added, or None.
 
     The same answer the interface gives by greying its drawing actions
@@ -88,6 +88,18 @@ def boundary_refusal(project, btype: BoundaryType, *,
 
     For a drawdown line the settings question is asked FIRST, which is
     the order the interface's tooltip has always reported them in.
+
+    OGR Core 0.2.14 (D444 of OGR Slip2D) -- with ``polyline``, the line the
+    new boundary would have, also the rules of its geometry, after those of
+    the type:
+
+    * ``external_not_closed`` -- an External from an open polyline;
+    * ``self_intersecting`` -- a polyline of 4 vertices or more that crosses
+      itself (``has_self_intersections``), the agent's check since it
+      existed, now asked by every door that adds a boundary.
+
+    Without ``polyline`` the answer is the one of always: a caller that
+    asks with the type alone (greying a drawing action) is not moved.
     """
     btype = BoundaryType(btype) if not isinstance(btype, BoundaryType) \
         else btype
@@ -111,6 +123,27 @@ def boundary_refusal(project, btype: BoundaryType, *,
                                    for b in project.boundaries
                                    if b is not ignoring):
         return Refusal("single_instance", message)
+    if polyline is not None:
+        return polyline_refusal(btype, polyline)
+    return None
+
+
+#: OGR Core 0.2.14 (D444) -- the agent's sentence, now the rule's
+SELF_INTERSECTING = "The edit makes the boundary cross itself."
+
+
+def polyline_refusal(btype, polyline) -> Optional[Refusal]:
+    """Why ``polyline`` cannot be the line of a boundary of type ``btype``,
+    or None (OGR Core 0.2.14, D444): an External only from a closed one,
+    which is what the region builder reads, and no boundary that crosses
+    itself. :func:`boundary_refusal` asks it when given the polyline."""
+    from ..geometry.cleanup import has_self_intersections
+    btype = BoundaryType(btype) if not isinstance(btype, BoundaryType) \
+        else btype
+    if btype == BoundaryType.EXTERNAL and not polyline.closed:
+        return Refusal("external_not_closed", EXTERNAL_NOT_CLOSED)
+    if len(polyline.vertices) >= 4 and has_self_intersections(polyline):
+        return Refusal("self_intersecting", SELF_INTERSECTING)
     return None
 
 
@@ -131,6 +164,14 @@ def conversion_refusal(project, boundary, new_type) -> Optional[Refusal]:
     a second water table, added it by both of its Convert paths. Asked in
     this order, the agent's. A Block Search object's geometry has its own
     rule (:func:`block_object_refusal`), asked of the converted boundary.
+
+    OGR Core 0.2.14 (D444 of OGR Slip2D) -- and a polyline that crosses
+    itself (:func:`polyline_refusal`), asked of the line the CONVERTED
+    boundary has: a closed ring becomes open in the types that are lines,
+    and its closing segment no longer counts. The window converted a
+    crossing polyline into a piezometric line or a weak layer, and the
+    agent refused it. Asked after the External's ``external_not_closed``,
+    the order of always.
     """
     new_type = BoundaryType(new_type) if not isinstance(
         new_type, BoundaryType) else new_type
@@ -150,6 +191,46 @@ def conversion_refusal(project, boundary, new_type) -> Optional[Refusal]:
         why = surface_in_use_refusal(project, boundary.id)
         if why is not None:
             return why
+    from ..geometry.transforms import convert_boundary
+    return polyline_refusal(new_type,
+                            convert_boundary(boundary, new_type).polyline)
+
+
+#: OGR Core 0.2.14 (D444) -- the agent's sentence and advice since it
+#: refused it (``ogr_api.ops.files``), now the rule's. The advice names the
+#: agent's arguments; a window says it with its own controls.
+IMPORT_TWO_EXTERNAL = "The import leaves two External boundaries."
+IMPORT_TWO_EXTERNAL_HINT = ("Use replace_model=true, or map only one layer "
+                            "to 'external'.")
+
+
+def import_refusal(project, preview, options) -> Optional[Refusal]:
+    """Why writing the DXF ``preview`` into ``project`` with ``options``
+    (``ogr_core.dxf.importer.apply_to_project``) is refused, or None. Asks
+    and writes nothing.
+
+    OGR Core 0.2.14 (D444 of OGR Slip2D, the owner's decision: the WHOLE
+    import is refused). ``import_two_external`` -- the import leaves more
+    than one External boundary: one layer mapped to External without
+    Replace Model in a model that has one, or two External polylines. The
+    region builder reads the first External and ignores the rest
+    (``_SINGLE_INSTANCE``). The count is the one ``apply_to_project``
+    makes: what Replace Model takes away (the types the DXF defines) and
+    the polylines of two points or more it adds.
+    """
+    from ..dxf.importer import KIND_TO_BOUNDARY
+    if not getattr(preview, "ok", False) or not preview.sanitised:
+        return None
+    defined = {KIND_TO_BOUNDARY[k] for k in preview.sanitised
+               if k in KIND_TO_BOUNDARY}
+    kept = 0 if (options.replace_model
+                 and BoundaryType.EXTERNAL in defined) else len(
+        project.boundaries_of(BoundaryType.EXTERNAL))
+    added = sum(1 for kind, polys in preview.sanitised.items()
+                if KIND_TO_BOUNDARY.get(kind) == BoundaryType.EXTERNAL
+                for p in polys if len(p.points) >= 2)
+    if kept + added > 1:
+        return Refusal("import_two_external", IMPORT_TWO_EXTERNAL)
     return None
 
 

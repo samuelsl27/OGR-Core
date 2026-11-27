@@ -225,3 +225,74 @@ Nada.
   - el rechazo nuevo de `conversion_refusal` (la junta) llega por el camino que ya tienen los dos
     Convertir.
 - **OGR FEM2D**: nada.
+
+## D444 — la autointersección y la importación, a la regla
+
+### Lo que se encontró
+
+- `boundary_refusal` recibía solo el tipo, y `conversion_refusal` no miraba la geometría salvo el
+  exterior cerrado. Las dos comprobaciones con las que el agente de Slip2D rechaza lo que la
+  ventana deja pasar estaban escritas a mano fuera del núcleo:
+  - la autointersección, `has_self_intersections`, en `ogr_api/ops/model.py`;
+  - los dos exteriores de una importación, en `ogr_api/ops/files.py`.
+- **Una conversión cambia la polilínea**: un anillo cerrado pasa a abierto en los tipos que son
+  líneas (nivel freático, línea piezométrica, capa débil…), y su segmento de cierre deja de
+  contar. La pregunta va sobre la polilínea del contorno **convertido**.
+- **Encontrado y sin corregir (regla 6), para que lo decida la propietaria.** El saneador del DXF
+  (`ogr_core/dxf/sanitiser.py`, `_validate`) se queda con el exterior más grande cuando hay varios.
+  Si dos tienen **la misma área**, falla con
+  `TypeError: '<' not supported between instances of 'DxfPolyline' and 'DxfPolyline'`, porque
+  `areas.sort(reverse=True)` compara las polilíneas al empatar. Lo da `preview()` con dos
+  rectángulos iguales en la capa del exterior. Es anterior a esta versión. Por ese saneador,
+  además, dos polilíneas de exterior en el DXF nunca llegan a `apply_to_project`.
+- **Sin cambiar, para que lo decida la propietaria**: importar sin sustituir el modelo una capa de
+  nivel freático, grieta o línea de desembalse en un modelo que ya tiene uno deja dos, igual que
+  el exterior. El pedido y la decisión hablan del exterior, y el agente tampoco comprueba los
+  otros.
+
+### Qué cambia
+
+- `ogr_core/project/rules.py`:
+  - `boundary_refusal(project, btype, *, ignoring=None, polyline=None)`. Con `polyline`, después de
+    las reglas del tipo, pregunta las de su geometría (`polyline_refusal`). Sin ella, la respuesta
+    de siempre, para quien llama solo con el tipo.
+  - `polyline_refusal(btype, polyline)`:
+    - `external_not_closed`, un exterior de una polilínea abierta, con el texto de siempre;
+    - `self_intersecting`, una polilínea de 4 vértices o más que se cruza (`has_self_intersections`),
+      con el texto del agente, `SELF_INTERSECTING = "The edit makes the boundary cross itself."`.
+  - `conversion_refusal` pregunta también `polyline_refusal` sobre la polilínea convertida
+    (`convert_boundary`), después de las reglas de siempre y en su orden.
+  - `import_refusal(project, preview, options)` responde sin escribir nada. Da
+    `import_two_external` si la importación deja más de un exterior, contado como lo cuenta
+    `apply_to_project`: lo que quita «sustituir el modelo» (los tipos que define el DXF) y las
+    polilíneas de dos puntos o más que añade. La importación se rechaza entera (decisión de la
+    propietaria). El texto y el consejo del agente son constantes:
+
+    ```
+    IMPORT_TWO_EXTERNAL = "The import leaves two External boundaries."
+    IMPORT_TWO_EXTERNAL_HINT = "Use replace_model=true, or map only one layer to 'external'."
+    ```
+- `tests/test_boundary_rules_d444_v0214.py`, 15 tests: las filas de la tabla de la ficha a nivel de
+  regla, con estos controles:
+  - un nivel freático sin otro puesto se acepta;
+  - una polilínea que no se cruza se acepta;
+  - quien llama con el tipo solo recibe lo de siempre;
+  - el anillo cuyo segmento de cierre lo cruza se acepta abierto como nivel freático y se rechaza
+    cerrado como contorno de material;
+  - con «sustituir el modelo», o en un modelo sin exterior, la importación se acepta;
+  - una capa de material se acepta.
+
+  Contra el núcleo de antes fallan 13.
+
+### Lo que tiene que cambiar cada programa (regla 10)
+
+- **OGR Slip2D**:
+  - **Convertir herramienta en contorno**: `boundary_refusal(project, btype, polyline=…)` antes de
+    añadir, y el motivo en la barra;
+  - **Importar DXF**: `import_refusal` antes de `apply_to_project`. Si responde, la ventana no
+    escribe nada y lo dice;
+  - **Convertir contorno** ya pregunta `conversion_refusal`: la autointersección le llega sola;
+  - el agente puede dejar sus dos comprobaciones propias y preguntar las del núcleo. Los textos
+    son los mismos;
+  - los códigos nuevos de `Refusal` son `self_intersecting` e `import_two_external`.
+- **OGR FEM2D**: nada obligatorio. Si añade contornos o importa DXF, las mismas reglas.
