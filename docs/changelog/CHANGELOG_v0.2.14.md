@@ -296,3 +296,72 @@ Nada.
     son los mismos;
   - los códigos nuevos de `Refusal` son `self_intersecting` e `import_two_external`.
 - **OGR FEM2D**: nada obligatorio. Si añade contornos o importa DXF, las mismas reglas.
+
+## D449 — el soldado de extremos funde una capa fina (decisión A + C)
+
+### Lo que se encontró
+
+- En `_nearest_on_polyline` (`ogr_core/geometry/regions.py`, dentro de `_build_regions_shapely`),
+  un vértice a menos de `weld_tol` (`diag × 8e-3`) ganaba a un segmento aunque el extremo ya
+  estuviera **sobre** ese segmento. Dos contactos casi paralelos que acaban en el exterior saltaban
+  al mismo vértice, y la capa entre ellos desaparecía sin aviso. En un bloque de 100 × 30, una capa
+  de 0,1 a 0,8 m daba 2 regiones en lugar de 3, en los dos órdenes de dibujo y también a ×10 (5 a
+  8 m).
+- **Con A, la tabla de Slip2D sale fila a fila** (`_auditoria/P10_D449/medir_regla_a_0.1.503.log`):
+  - acabando en el borde, 3 regiones en todos los casos;
+  - acabando fuera del modelo, las capas finas se siguen fundiendo, porque el extremo no está sobre
+    ningún segmento. Es el caso del aviso C.
+- **El censo del banco**, repetido aquí con un guion propio sobre los mismos 230 modelos: el 02 y
+  los manuales 03 a 07, sin instantáneas, `_auditoria` ni `Evaluaciones`. Se compara el
+  `ogr_core 0.2.12` instalado en Slip2D con este árbol, por material y área de cada región, y da
+  0 errores.
+  - **Cambian 3 modelos**, los mismos que contó Slip2D: la presa de Talbingo,
+    `02/Problema005/modelo.ogr`, `02/Problema005/modelo_aguas_arriba.ogr` y
+    `02/Problema006/modelo.ogr`.
+  - Con 0.2.12 hay una astilla de 262,27 m² y *Transition* tiene 5331,80 m². Con A, la astilla
+    desaparece, *Transition* baja a 5096,72 m² y aparece el filtro, de 497,35 m². Son los números
+    de la ficha al sexto decimal.
+  - Con A, `contacts_welded` no da ninguna nota en los 230.
+- **Encontrado, anterior y menor**: las caras del constructor no embaldosan el exterior al último
+  bit. El bloque de 100 × 30 suma 3000,000061 m², 2e-8 de más, y la capa de 2 m mide 200,000046 m².
+  Pasaba igual con 0.2.12. El test compara con tolerancia relativa 1e-5 por eso, y lo dice.
+- El constructor sin Shapely (`_build_regions_pure`) no tiene soldado: ni A ni C le tocan.
+
+### Qué cambia
+
+- `ogr_core/geometry/regions.py`:
+  - **regla A**: en `_nearest_on_polyline`, un extremo a ≤ `ON_SEGMENT × diag` (1e-9) de un
+    segmento no salta a un vértice. Un vértice a ≤ `SAME_POINT` (1e-12) sigue ganando, porque ya es
+    el mismo punto;
+  - `build_regions(..., welds=None)`: con una lista, recibe un `EndpointWeld` por cada par de
+    extremos de dos contactos abiertos distintos que el soldado deja en el mismo punto y que antes
+    estaban a más de 1e-12. Lleva los dos contornos, sus extremos, el punto y la distancia. Las
+    regiones son las mismas con lista y sin ella.
+- `ogr_core/project/rules.py`: **regla C**, `contacts_welded(project)`, una nota con código
+  (`rule.contacts_welded`) por par de extremos fundidos. Es para la validación de un programa, como
+  aviso. El texto:
+
+  ```
+  The material boundaries {first} and {second} end {distance:.3f} m apart, within the welding tolerance, and were joined at ({x:.3f}, {y:.3f}): whatever lay between those two ends is not a region of its own. Move them apart, or end them on the same point.
+  ```
+- `tests/test_endpoint_weld_d449_v0214.py`, 7 tests:
+  - el bloque en sus dos formas, en los dos órdenes y a ×1 y ×10;
+  - acabando en el borde, 3 regiones, con la capa igual a 100·k × espesor, la solución cerrada, y
+    sin nota;
+  - acabando fuera, las capas finas en 2 regiones con dos notas C, cada una con la distancia igual
+    al espesor, y las gruesas en 3 sin nota;
+  - el control: dos tramos que comparten extremo exacto y un tercero en T no dan nota;
+  - `welds` no mueve ninguna región.
+
+  Contra el núcleo de antes fallan los 7.
+
+### Lo que tiene que cambiar cada programa (regla 10)
+
+- **OGR Slip2D**:
+  - **cambian las regiones de 005 y 006** (la presa de Talbingo). Es el arreglo: lo declara en su
+    changelog y en la ficha del banco. Los factores no cambian ni un bit, según su
+    `ab_factores_regla_a.py`;
+  - el aviso C en la barra y en `project_validate` (`contacts_welded`);
+  - la muestra del código nuevo en `test_core_messages_v1333.py` y su castellano.
+- **OGR FEM2D**: las regiones de un modelo con dos contactos así cambian igual, y su malla con
+  ellas. Su suite contra este núcleo lo dirá.
