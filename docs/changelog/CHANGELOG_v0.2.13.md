@@ -79,5 +79,17 @@ nada del informe en una corrida sin `net_newmark`.
 
 | Qué | Resultado |
 |---|---|
-| OGR Slip2D `cfaf5be` (fija `v0.2.12`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `e997b17` (19:12–19:19) | 7658 casos: 7656 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.13.dev0 … @ e997b17`, `DEV CORE` antes y después. **No vale como evidencia**: su árbol estaba limpio al empezar, pero la sesión de Slip2D cambió cuatro archivos de `ogr_gui` (`contours.py`, `dialogs/contour_options_dialog.py`, `interpret_window.py`, `i18n/__init__.py`) entre las 19:18:28 y las 19:19:13, en el último minuto de la corrida. Hay que repetirla con su árbol quieto |
-| OGR FEM2D | No se corrió aquí: su árbol tiene trabajo sin confirmar de su sesión (`ogr_fem2d/results/`). No usa el informe. Su corrida es la de la CI de la PR |
+| OGR Slip2D `cfaf5be` entera contra `e997b17` (19:12–19:19) | 7658 casos, 0 fallos. **No vale como evidencia**: su sesión cambió cuatro archivos de `ogr_gui` (`contours.py`, `dialogs/contour_options_dialog.py`, `interpret_window.py`, `i18n/__init__.py`) entre las 19:18:28 y las 19:19:13, en el último minuto de la corrida. Se repitió |
+| OGR Slip2D `5eccc32` (su v0.1.502, fija `v0.2.12`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `70a041d` (19:38–19:44) | 7666 casos: 7664 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.13.dev0 … @ 70a041d`, `DEV CORE` antes y después. Su árbol, limpio antes y después. La corrió esta sesión |
+| OGR FEM2D `14fafaa` (fija `v0.2.9`) **entera**, con `--dev-core` y fuera de pantalla, contra `70a041d` (19:42–19:52) | 840 casos: 839 pasan, **1 fallo**, código 1. Su árbol, limpio antes y después. El fallo es suyo y no de este cambio (abajo) |
+| CI de la PR 48 (Linux) | En verde: las tres Python del núcleo y las suites de OGR Slip2D y OGR FEM2D contra este núcleo |
+
+`70a041d` tiene el mismo `ogr_core` que `e997b17`; entre los dos solo cambia este changelog.
+
+**El fallo de FEM2D**: `tests/test_project_setup_v001.py::test_and_given_back_the_core_of_the_run_it_runs`.
+Relanza su runner con `python -S` y `PYTHONPATH` igual a la carpeta de donde sale el núcleo de la
+corrida. Con `--dev-core`, esa carpeta es este árbol, no `site-packages`, y el hijo no encuentra
+`ogr_ui`, que está instalado en `site-packages`: `ModuleNotFoundError: No module named 'ogr_ui'`
+en `_install_gc_guard` (`tests/_runner.py`, línea 99). Falla igual contra `main` (`a8102b8`, sin
+este cambio). En la CI pasa porque allí el núcleo va instalado en `site-packages`. Solo muerde
+una corrida local con `--dev-core`, y se arregla en FEM2D.
