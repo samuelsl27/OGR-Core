@@ -73,7 +73,7 @@ nada del informe en una corrida sin `net_newmark`.
 | Qué | Resultado |
 |---|---|
 | `tests/test_report_net_newmark_v0213.py` | 9 de 9; 8 fallan contra el núcleo de la 0.2.12 |
-| Suite del núcleo entera, `--jobs 4` (Windows), en `e997b17` | 1005 de 1005, sin fugas, código 0 |
+| Suite del núcleo entera, `--jobs 4` (Windows), en `e997b17` y otra vez con la versión 0.2.13 | 1005 de 1005, sin fugas, código 0, las dos veces |
 
 **La regla 8**, el 2026-11-27 en Windows, contra la rama `d437-newmark-neto`:
 
@@ -82,14 +82,23 @@ nada del informe en una corrida sin `net_newmark`.
 | OGR Slip2D `cfaf5be` entera contra `e997b17` (19:12–19:19) | 7658 casos, 0 fallos. **No vale como evidencia**: su sesión cambió cuatro archivos de `ogr_gui` (`contours.py`, `dialogs/contour_options_dialog.py`, `interpret_window.py`, `i18n/__init__.py`) entre las 19:18:28 y las 19:19:13, en el último minuto de la corrida. Se repitió |
 | OGR Slip2D `5eccc32` (su v0.1.502, fija `v0.2.12`) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `70a041d` (19:38–19:44) | 7666 casos: 7664 pasan, 0 fallos, 2 saltados, ninguna fuga, código 0. `shared: ogr_core 0.2.13.dev0 … @ 70a041d`, `DEV CORE` antes y después. Su árbol, limpio antes y después. La corrió esta sesión |
 | OGR FEM2D `14fafaa` (fija `v0.2.9`) **entera**, con `--dev-core` y fuera de pantalla, contra `70a041d` (19:42–19:52) | 840 casos: 839 pasan, **1 fallo**, código 1. Su árbol, limpio antes y después. El fallo es suyo y no de este cambio (abajo) |
+| OGR FEM2D `99285e3` (su v0.0.15, con el arreglo de ese test) entera contra `170efe1` (21:59–22:16) | 849 casos, 2 fallos de tiempo (`test_gui_interpret_v0015::TestD15::test_case_005`, 1,09 s con un límite de 1 s, y `test_results_recovery_v0015::TestBitForBit::test_faster`). **No vale como evidencia**: la sesión de FEM2D corría a la vez su propia suite, dos corridas del mismo programa (regla 8). Se repitió |
+| OGR FEM2D `99285e3` **entera**, con `--dev-core` y fuera de pantalla, contra `170efe1` (23:13–23:22), sin ninguna otra suite en marcha | 849 casos: 849 pasan, 0 fallos, ninguna fuga, código 0. `shared: ogr_core 0.2.13.dev0 … @ 170efe1`, `DEV CORE` antes y después. Su árbol, limpio antes y después. La corrió esta sesión |
 | CI de la PR 48 (Linux) | En verde: las tres Python del núcleo y las suites de OGR Slip2D y OGR FEM2D contra este núcleo |
 
-`70a041d` tiene el mismo `ogr_core` que `e997b17`; entre los dos solo cambia este changelog.
+`70a041d` y `170efe1` tienen el mismo `ogr_core` que `e997b17`: entre ellos solo cambia este
+changelog. El commit de la etiqueta cambia además el número de versión y `docs/consumidores.md`.
 
-**El fallo de FEM2D**: `tests/test_project_setup_v001.py::test_and_given_back_the_core_of_the_run_it_runs`.
+**El primer fallo de FEM2D, ya arreglado allí**:
+`tests/test_project_setup_v001.py::test_and_given_back_the_core_of_the_run_it_runs`.
 Relanza su runner con `python -S` y `PYTHONPATH` igual a la carpeta de donde sale el núcleo de la
 corrida. Con `--dev-core`, esa carpeta es este árbol, no `site-packages`, y el hijo no encuentra
 `ogr_ui`, que está instalado en `site-packages`: `ModuleNotFoundError: No module named 'ogr_ui'`
-en `_install_gc_guard` (`tests/_runner.py`, línea 99). Falla igual contra `main` (`a8102b8`, sin
-este cambio). En la CI pasa porque allí el núcleo va instalado en `site-packages`. Solo muerde
-una corrida local con `--dev-core`, y se arregla en FEM2D.
+en `_install_gc_guard` (`tests/_runner.py`, línea 99). Fallaba igual contra `main` (`a8102b8`, sin
+este cambio). En la CI pasa porque allí el núcleo va instalado en `site-packages`. Solo mordía
+una corrida local con `--dev-core`. FEM2D lo arregló en `99285e3` (su v0.0.15): el test le da al
+hijo también la carpeta de `ogr_ui`, detrás de la del núcleo.
+
+**`docs/consumidores.md`**: el comando de la suite entera de FEM2D pasa a
+`QT_QPA_PLATFORM=offscreen python tests/_runner.py`, el de su `AGENTS.md`. Desde su spec 006 sus
+tests construyen ventanas de verdad y, sin esa variable, se abren en el escritorio.
