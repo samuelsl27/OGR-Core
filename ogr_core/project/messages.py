@@ -57,6 +57,8 @@ USER_POLYLINE_LABEL = "rule.user_polyline_label"
 # of a type that does not read it
 STALE_WATER_LINK = "rule.stale_water_link"
 STALE_ANISOTROPIC_LINK = "rule.stale_anisotropic_link"
+# OGR Core 0.2.14 (D449 of OGR Slip2D, rule C) -- two contacts welded
+CONTACTS_WELDED = "rule.contacts_welded"
 
 _REREAD = (
     "The {label} projection angles are written from {start:g}° to {end:g}°, "
@@ -192,6 +194,15 @@ RULES = {s.code: s for s in (
                 "from {boundary}, which is not an anisotropic surface: its "
                 "strength does not read it.",
                 group_by=("boundary",)),
+    # OGR Core 0.2.14 (D449, rule C) -- the distance with the precision of
+    # a coordinate of the report; the point too
+    MessageSpec(CONTACTS_WELDED,
+                "The material boundaries {first} and {second} end "
+                "{distance:.3f} m apart, within the welding tolerance, and "
+                "were joined at ({x:.3f}, {y:.3f}): whatever lay between "
+                "those two ends is not a region of its own. Move them apart, "
+                "or end them on the same point.",
+                group_by=("first", "second")),
 )}
 
 

@@ -2207,3 +2207,35 @@ def stale_surface_links(project) -> list:
             notes.append(_msg(M.STALE_ANISOTROPIC_LINK, material=m.name,
                               boundary=boundary_label(project, b)))
     return notes
+
+
+# ----------------------------------------------------------------------
+# OGR Core 0.2.14 (D449 of OGR Slip2D, rule C) -- contacts the welding
+# joins
+# ----------------------------------------------------------------------
+def contacts_welded(project) -> list:
+    """The coded notes of the material boundaries the endpoint welding of
+    the region builder leaves with an end at the same point, where they had
+    none before: one per pair of ends, naming the two boundaries, the point
+    and how far apart the ends were.
+
+    OGR Core 0.2.14 (D449, the owner's decision A + C). The welding joins
+    an end within 0.8 % of the model's diagonal of another boundary to it,
+    and with two contacts drawn almost parallel the layer between them
+    vanished without a word. Rule A keeps an end already on a segment where
+    it is; an end that is on nothing (a contact drawn past the External)
+    still welds, and this says so. For a program's validation, as a
+    warning. Two contacts that do end at one point give none.
+    """
+    from ..geometry.regions import build_regions
+    external = project.external_boundary()
+    if external is None:
+        return []
+    welds: list = []
+    build_regions(external, project.boundaries_of(BoundaryType.MATERIAL),
+                  welds=welds)
+    return [_msg(M.CONTACTS_WELDED,
+                 first=boundary_label(project, w.first),
+                 second=boundary_label(project, w.second),
+                 distance=w.distance, x=w.point[0], y=w.point[1])
+            for w in welds]

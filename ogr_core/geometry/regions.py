@@ -166,6 +166,7 @@ def build_regions(
     material_boundaries: List[Boundary],
     *,
     tolerance: float = 1e-6,
+    welds: Optional[list] = None,
 ) -> List[MaterialRegion]:
     """Compute the planar subdivision of ``external`` by the
     ``material_boundaries``.
@@ -176,19 +177,72 @@ def build_regions(
     cross the External cleanly (no intersections between material
     boundaries themselves). The fallback produces the correct result
     for the vast majority of slope-stability models.
+
+    OGR Core 0.2.14 (D449 of OGR Slip2D) -- ``welds``, a list, receives one
+    :class:`EndpointWeld` per pair of open material boundaries that the
+    endpoint welding left with an end at the same point where they had none
+    before (the regions are the same with it or without it). Only the
+    shapely builder welds; the pure one leaves it empty.
     """
     if external.btype != BoundaryType.EXTERNAL or not external.polyline.closed:
         return []
 
     if regions_available():
-        return _build_regions_shapely(external, material_boundaries, tolerance)
+        return _build_regions_shapely(external, material_boundaries,
+                                      tolerance, welds=welds)
     return _build_regions_pure(external, material_boundaries, tolerance)
+
+
+@dataclass(frozen=True)
+class EndpointWeld:
+    """Two open material boundaries the endpoint welding left with an end
+    at the same point, where they had none before (OGR Core 0.2.14, D449):
+    the two boundaries, their ends (0 or -1), the point and how far apart
+    the two ends were."""
+
+    first: Boundary
+    first_end: int
+    second: Boundary
+    second_end: int
+    point: Tuple[float, float]
+    distance: float
+
+
+#: A vertex this close to an endpoint IS the endpoint (the welding's guard
+#: of always); and an endpoint this close to a segment, relative to the
+#: model's diagonal, is ON it (OGR Core 0.2.14, D449, rule A).
+SAME_POINT = 1e-12
+ON_SEGMENT = 1e-9
+
+
+def _welded_ends(bounds, before, after) -> list:
+    """The :class:`EndpointWeld` of the open cuts ``bounds``, whose
+    coordinates were ``before`` the welding and are ``after`` it."""
+    ends = []
+    for b, o, f in zip(bounds, before, after):
+        if len(o) >= 2 and len(f) >= 2:
+            ends.append((b, 0, o[0], f[0]))
+            ends.append((b, -1, o[-1], f[-1]))
+    out = []
+    for i in range(len(ends)):
+        for j in range(i + 1, len(ends)):
+            ba, ea, oa, fa = ends[i]
+            bb, eb, ob, fb = ends[j]
+            if ba is bb:
+                continue
+            if (math.dist(fa, fb) <= SAME_POINT
+                    and math.dist(oa, ob) > SAME_POINT):
+                out.append(EndpointWeld(ba, ea, bb, eb, tuple(fa),
+                                        math.dist(oa, ob)))
+    return out
 
 
 def _build_regions_shapely(
     external: Boundary,
     material_boundaries: List[Boundary],
     tolerance: float,
+    *,
+    welds: Optional[list] = None,
 ) -> List[MaterialRegion]:
     """Planar subdivision via shapely.
 
@@ -301,6 +355,9 @@ def _build_regions_shapely(
     # T-junction detection: an endpoint that lies on another cut should
     # NOT be extended (touching is enough to be noded by unary_union).
     open_cut_coords: list = []
+    # OGR Core 0.2.14 (D449) -- the boundary of each open cut, for the
+    # welds it reports
+    open_cut_bounds: list = []
     # v0.1.197 — the CLOSED material boundaries (lenses), as rings that
     # repeat their first point like ``ext_ring_coords``. They are weld
     # targets and "other cuts" too: an open line drawn to end ON a lens was
@@ -311,6 +368,7 @@ def _build_regions_shapely(
             continue
         if not mb.polyline.closed and len(mb.polyline.vertices) >= 2:
             open_cut_coords.append([(v.x, v.y) for v in mb.polyline.vertices])
+            open_cut_bounds.append(mb)
         elif mb.polyline.closed and len(mb.polyline.vertices) >= 3:
             ring = [(v.x, v.y) for v in mb.polyline.vertices]
             if ring[0] != ring[-1]:
@@ -341,6 +399,18 @@ def _build_regions_shapely(
     # Endpoints farther than weld_tol from everything are genuine
     # danglings and keep the extend-past-External behaviour.
     weld_tol = diag * 8e-3  # ~0.8% of model diagonal (the reference's ratio)
+    # OGR Core 0.2.14 (D449 of OGR Slip2D, rule A) -- an endpoint already ON
+    # a segment does not jump to a vertex: the vertex priority is for an
+    # endpoint the mouse left NEAR a node, and an endpoint on a segment is
+    # where it was drawn. It made two contacts that end on the External a
+    # few decimetres apart jump to the same vertex, and the layer between
+    # them vanished without a word: a block of 100 x 30 with a layer of 0.1
+    # to 0.8 m gave 2 regions instead of 3, and the filter of the Talbingo
+    # dam of the bank (its 02, Problems 005 and 006) did not exist, its
+    # end at (310.7, 0) jumping 3.6 m to the vertex (307.1, 0). A vertex
+    # within ``SAME_POINT`` still wins: it is the same point.
+    on_segment_tol = ON_SEGMENT * diag
+    cuts_before = [list(c) for c in open_cut_coords]
     ext_ring_coords: list = list(ext_poly.exterior.coords)  # closed ring
 
     def _nearest_on_polyline(pt, coords, closed):
@@ -369,7 +439,9 @@ def _build_regions_shapely(
             d = math.hypot(bx - px, by - py)
             if d < best_s[0]:
                 best_s = (d, i, (px, py))
-        if best_v[0] <= weld_tol:
+        on_segment = (best_s[0] <= on_segment_tol
+                      and best_v[0] > SAME_POINT)
+        if best_v[0] <= weld_tol and not on_segment:
             return (best_v[0], "vertex", best_v[1], coords[best_v[1]])
         if best_s[0] <= weld_tol:
             return (best_s[0], "segment", best_s[1], best_s[2])
@@ -445,6 +517,9 @@ def _build_regions_shapely(
                 break
     except Exception:  # noqa: BLE001
         pass
+    if welds is not None:
+        welds.extend(_welded_ends(open_cut_bounds, cuts_before,
+                                  open_cut_coords))
 
     def _endpoint_on_other_cut(
         x: float, y: float, own_coords: list,
