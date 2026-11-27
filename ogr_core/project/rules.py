@@ -1836,3 +1836,86 @@ def in_orphan_region(project, x: float, y: float) -> bool:
     the slicer asks to name the cause of a base with no material (D298)."""
     mid = project.region_material_id_at(x, y)
     return mid is not None and project.material_by_id(mid) is None
+
+
+# ----------------------------------------------------------------------
+# OGR Core 0.2.14 (D445 of OGR Slip2D) -- ids that two items share
+# ----------------------------------------------------------------------
+def _nested_rule(code: str, **args) -> dict:
+    from ..messages import as_nested
+    return as_nested(_msg(code, **args))
+
+
+def boundary_label(project, boundary) -> dict:
+    """``boundary`` of ``project`` named in a note, as a nested message: its
+    name when it has one of its own (``boundary_has_given_name``: not the
+    name of a type, which every boundary is born with), its kind, and its position among the
+    boundaries of its kind (by identity, counted from 1)."""
+    same = [b for b in project.boundaries if b.btype == boundary.btype]
+    n = next((i for i, b in enumerate(same) if b is boundary), 0) + 1
+    from ..geometry.boundary import boundary_has_given_name
+    kind = boundary.btype.display_name
+    if boundary_has_given_name(boundary):
+        return _nested_rule(M.BOUNDARY_LABEL_NAMED, name=boundary.name,
+                            kind=kind, n=n)
+    return _nested_rule(M.BOUNDARY_LABEL, kind=kind, n=n)
+
+
+def _groups_by(items, key) -> dict:
+    """``{key: [items]}`` of the keys two items or more share, in the order
+    of their first item."""
+    seen: dict = {}
+    for it in items:
+        seen.setdefault(key(it), []).append(it)
+    return {k: v for k, v in seen.items() if len(v) > 1}
+
+
+def duplicate_id_notes(project) -> list:
+    """The notes of the ids two boundaries, or two user surfaces, share.
+
+    OGR Core 0.2.14 (D445). ``Project.from_dict`` accepted them without a
+    word, and every link to such an id (a material's water or anisotropic
+    surface, a support, a face of Sarma's method) reads whichever comes
+    first. They are NOT renewed: those links read them, and which of the
+    two each meant is not in the file. A note, never a refusal, so an old
+    file opens; asked on reading (``Project.read_notes``) and by a
+    program's validation. The user surfaces are the circles and the
+    polylines together: they are told apart by the id.
+    """
+    notes = []
+    for bid, group in _groups_by(project.boundaries,
+                                 lambda b: b.id).items():
+        notes.append(_msg(M.DUPLICATE_BOUNDARY_ID, id=bid, boundaries=[
+            boundary_label(project, b) for b in group]))
+    circles = list(getattr(project, "user_surfaces", None) or ())
+    polylines = list(getattr(project, "user_polylines", None) or ())
+    labelled = ([(s, M.USER_CIRCLE_LABEL, i + 1)
+                 for i, s in enumerate(circles)]
+                + [(s, M.USER_POLYLINE_LABEL, i + 1)
+                   for i, s in enumerate(polylines)])
+    for sid, group in _groups_by(labelled, lambda t: t[0].id).items():
+        notes.append(_msg(M.DUPLICATE_USER_SURFACE_ID, id=sid, surfaces=[
+            _nested_rule(code, n=n) for _s, code, n in group]))
+    return notes
+
+
+def renew_repeated_polyline_ids(project) -> list:
+    """Give a new id to every boundary polyline whose id an earlier one
+    already has, and return a note per id renewed.
+
+    OGR Core 0.2.14 (D445). Copy Boundary of OGR Slip2D, from its 0.1.59 to
+    its 0.1.455 (its D425), saved the copy with the polyline id of the
+    original. Nothing reads ``Polyline.id``, so renewing it changes no
+    model, and a copy made afterwards stops inheriting the repeated one.
+    The first polyline keeps its id; a file without repeated ids is not
+    touched by a bit.
+    """
+    from uuid import uuid4
+    notes = []
+    for pid, group in _groups_by(project.boundaries,
+                                 lambda b: b.polyline.id).items():
+        notes.append(_msg(M.POLYLINE_ID_RENEWED, id=pid, boundaries=[
+            boundary_label(project, b) for b in group]))
+        for b in group[1:]:
+            b.polyline.id = str(uuid4())
+    return notes

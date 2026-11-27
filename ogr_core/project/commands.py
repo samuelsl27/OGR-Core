@@ -83,7 +83,9 @@ class AddBoundaryCommand(Command):
         project.add_boundary(self.boundary)
 
     def undo(self, project: Project) -> None:
-        project.remove_boundary(self.boundary.id)
+        # OGR Core 0.2.14 (D445) -- this boundary, by identity: by its id
+        # it took away every boundary sharing it
+        project.remove_boundary(self.boundary)
 
 
 @dataclass
@@ -93,10 +95,22 @@ class RemoveBoundaryCommand(Command):
     _index: Optional[int] = field(default=None, repr=False, compare=False)
 
     def execute(self, project: Project) -> None:
-        ids = [b.id for b in project.boundaries]
-        self._index = (ids.index(self.boundary.id)
-                       if self.boundary.id in ids else None)
-        project.remove_boundary(self.boundary.id)
+        # OGR Core 0.2.14 (D445 of OGR Slip2D) -- the index OF THE OBJECT,
+        # and the object removed: by its id, in a file holding two
+        # boundaries with the same id, Delete took both away (and found the
+        # index of the first), and Undo gave back one, in the place of the
+        # other
+        self._index = next((i for i, b in enumerate(project.boundaries)
+                            if b is self.boundary), None)
+        if self._index is None:
+            # not this object (a model restored from a copy): the first
+            # boundary with its id, ONE, as before
+            self._index = next((i for i, b in enumerate(project.boundaries)
+                                if b.id == self.boundary.id), None)
+            if self._index is not None:
+                project.remove_boundary(project.boundaries[self._index])
+            return
+        project.remove_boundary(self.boundary)
 
     def undo(self, project: Project) -> None:
         # v0.1.203 — back IN ITS PLACE (anomaly A2, reported in v0.1.194).
