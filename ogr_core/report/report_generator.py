@@ -23,6 +23,7 @@ Author: Samuel Sáez López (UPCT)
 from __future__ import annotations
 
 import math
+import numbers
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -151,12 +152,24 @@ def _method_name(mid: str) -> str:
 
 
 def _fmt(x, nd=3):
+    """``x`` with ``nd`` decimals, or a dash for None and NaN.
+
+    OGR Core 0.2.14 (D446 of OGR Slip2D, the owner's decision B): EVERY real
+    number that is not a ``bool`` is written with ``nd`` decimals -- an
+    ``int``, a ``float`` and the numpy scalars alike. It wrote so only a
+    ``float`` and passed the rest through ``str()``, so an integer
+    coordinate came out ``'0'`` where a real one came out ``'0.000'``: the
+    vertices of the demo slope are integers, and with one vertex edited to
+    (35.5, 15) the same row mixed ``'35.500'`` and ``'15'``. The counts
+    that are written without decimals (slices, vertices, indices) do not
+    come through here: their callers write them with ``str()``.
+    """
     if x is None:
         return "—"
-    if isinstance(x, float):
+    if isinstance(x, numbers.Real) and not isinstance(x, bool):
         if math.isnan(x):
             return "—"
-        return f"{x:.{nd}f}"
+        return f"{float(x):.{nd}f}"
     return str(x)
 
 
