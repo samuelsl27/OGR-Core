@@ -202,6 +202,30 @@ def conversion_refusal(project, boundary, new_type) -> Optional[Refusal]:
 IMPORT_TWO_EXTERNAL = "The import leaves two External boundaries."
 IMPORT_TWO_EXTERNAL_HINT = ("Use replace_model=true, or map only one layer "
                             "to 'external'.")
+#: OGR Core 0.2.14 -- and the other boundaries a model holds one of
+#: (``_SINGLE_INSTANCE``), by the owner's decision of 2026-11-28: the same
+#: sentence and advice for each, with ``import_single_instance``.
+IMPORT_TWO = {
+    BoundaryType.EXTERNAL: IMPORT_TWO_EXTERNAL,
+    BoundaryType.WATER_TABLE: "The import leaves two Water Tables.",
+    BoundaryType.TENSION_CRACK: ("The import leaves two Tension Crack "
+                                 "boundaries."),
+    BoundaryType.DRAWDOWN: "The import leaves two Drawdown Lines.",
+}
+#: The layer kind of the agent's ``layer_kinds`` each type is mapped by.
+_IMPORT_KIND = {
+    BoundaryType.EXTERNAL: "external",
+    BoundaryType.WATER_TABLE: "water_table",
+    BoundaryType.TENSION_CRACK: "tension_crack",
+    BoundaryType.DRAWDOWN: "drawdown",
+}
+
+
+def import_hint(btype) -> str:
+    """The advice of :func:`import_refusal` for ``btype``, in the agent's
+    arguments."""
+    return ("Use replace_model=true, or map only one layer to '%s'."
+            % _IMPORT_KIND[btype])
 
 
 def import_refusal(project, preview, options) -> Optional[Refusal]:
@@ -217,20 +241,28 @@ def import_refusal(project, preview, options) -> Optional[Refusal]:
     (``_SINGLE_INSTANCE``). The count is the one ``apply_to_project``
     makes: what Replace Model takes away (the types the DXF defines) and
     the polylines of two points or more it adds.
+
+    OGR Core 0.2.14, the owner's decision of 2026-11-28 -- and the same for
+    the other types a model holds one of: ``import_single_instance`` for a
+    second water table, tension crack or drawdown line (:data:`IMPORT_TWO`
+    says which, :func:`import_hint` the advice). The External is asked
+    first; the others in the order of :data:`IMPORT_TWO`.
     """
     from ..dxf.importer import KIND_TO_BOUNDARY
     if not getattr(preview, "ok", False) or not preview.sanitised:
         return None
     defined = {KIND_TO_BOUNDARY[k] for k in preview.sanitised
                if k in KIND_TO_BOUNDARY}
-    kept = 0 if (options.replace_model
-                 and BoundaryType.EXTERNAL in defined) else len(
-        project.boundaries_of(BoundaryType.EXTERNAL))
-    added = sum(1 for kind, polys in preview.sanitised.items()
-                if KIND_TO_BOUNDARY.get(kind) == BoundaryType.EXTERNAL
-                for p in polys if len(p.points) >= 2)
-    if kept + added > 1:
-        return Refusal("import_two_external", IMPORT_TWO_EXTERNAL)
+    for btype, message in IMPORT_TWO.items():
+        kept = 0 if (options.replace_model and btype in defined) else len(
+            project.boundaries_of(btype))
+        added = sum(1 for kind, polys in preview.sanitised.items()
+                    if KIND_TO_BOUNDARY.get(kind) == btype
+                    for p in polys if len(p.points) >= 2)
+        if kept + added > 1:
+            code = ("import_two_external" if btype == BoundaryType.EXTERNAL
+                    else "import_single_instance")
+            return Refusal(code, message)
     return None
 
 
@@ -2056,6 +2088,25 @@ def _surface_models():
     return (PorePressureType.WATER_TABLE, PorePressureType.PIEZO_LINE)
 
 
+def _water_readers(project, boundary_id) -> list:
+    """The materials that take their pore pressure from the boundary
+    ``boundary_id``: the ones that point at it under a water surface's
+    model, and -- OGR Core 0.2.14, the owner's decision of 2026-11-28 --
+    the ones that read it by the engine's fallback
+    (``resolve_water_surface``: a material on the model of its type and
+    without a surface of its own takes the first surface of that type).
+    In the order of the materials."""
+    from ..hydraulic.water_surfaces import materials_using_surface
+    surface = next((b for b in project.boundaries if b.id == boundary_id),
+                   None)
+    by_fallback = ({id(m) for m in materials_using_surface(project, surface)}
+                   if surface is not None else set())
+    return [m for m in project.materials
+            if (m.water_surface_id == boundary_id
+                and m.pore_pressure in _surface_models())
+            or id(m) in by_fallback]
+
+
 def conversion_link_changes(project, boundary_id, new_type) -> list:
     """What converting the boundary ``boundary_id`` into ``new_type`` does to
     the links of the materials, without doing it: a list of
@@ -2076,18 +2127,25 @@ def conversion_link_changes(project, boundary_id, new_type) -> list:
     is not a water surface's (Ru, a constant, a finite-element field) was
     never the conversion's to set, and stays. A conversion into the same
     type changes nothing.
+
+    A material that reads the surface by the engine's fallback, without an
+    id of its own (:func:`_water_readers`), is moved by the same rule (the
+    owner's decision of 2026-11-28): the water table it read, turned into a
+    piezometric line, took its pore pressure away as silently. When it
+    follows, it gets the id, so it keeps reading THIS surface.
     """
     new_type = BoundaryType(new_type) if not isinstance(
         new_type, BoundaryType) else new_type
     model = _water_model(new_type)
+    readers = {id(m) for m in _water_readers(project, boundary_id)}
     out = []
     for m in project.materials:
-        if m.water_surface_id == boundary_id and (
-                m.pore_pressure in _surface_models()):
+        if id(m) in readers:
             if model is None:
                 out.append(LinkChange(m.id, m.name, WATER_SURFACE_LINK,
                                       CLEARED))
-            elif m.pore_pressure != model:
+            elif m.pore_pressure != model or (
+                    m.water_surface_id != boundary_id):
                 out.append(LinkChange(m.id, m.name, WATER_SURFACE_LINK,
                                       FOLLOWED))
         if (getattr(m, "anisotropic_surface_id", None) == boundary_id
@@ -2103,11 +2161,14 @@ def removal_link_changes(project, boundary_id) -> list:
     surface takes its model to none with it. A water surface id under a
     model that does not read it is dropped too, without a change of model
     and without a :class:`LinkChange` (nothing the material read moved),
-    as the agent's deletion always did."""
+    as the agent's deletion always did. A material that read it by the
+    engine's fallback (:func:`_water_readers`) is cleared too: without it,
+    it would read the next surface of the type, or none, and nothing would
+    say so."""
+    readers = {id(m) for m in _water_readers(project, boundary_id)}
     out = []
     for m in project.materials:
-        if m.water_surface_id == boundary_id and (
-                m.pore_pressure in _surface_models()):
+        if id(m) in readers:
             out.append(LinkChange(m.id, m.name, WATER_SURFACE_LINK, CLEARED))
         if getattr(m, "anisotropic_surface_id", None) == boundary_id:
             out.append(LinkChange(m.id, m.name, ANISOTROPIC_SURFACE_LINK,
