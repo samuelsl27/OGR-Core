@@ -9,7 +9,7 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 | Programa | Repositorio | Núcleo que fija | Desde | Suite entera |
 |---|---|---|---|---|
 | OGR Slip2D | `samuelsl27/OGR-Slip2D` | `v0.2.12` | su v0.1.492 (`67faf4f`) | `QT_QPA_PLATFORM=offscreen python tests/_runner.py --jobs 4` |
-| OGR FEM2D | `samuelsl27/OGR-FEM2D` | `v0.2.9` | su `6b3604c` (su v0.0.13) | `QT_QPA_PLATFORM=offscreen python tests/_runner.py` |
+| OGR FEM2D | `samuelsl27/OGR-FEM2D` | `v0.2.13` | su `b34bf7f` (su v0.0.15) | `QT_QPA_PLATFORM=offscreen python tests/_runner.py` |
 
 - **La verdad es el `pyproject.toml` de cada programa** (`ogr-core @ git+…@vX.Y.Z`). Esta tabla la
   repite para que se vea de un vistazo quién se queda atrás, y se corrige aquí cuando un programa
@@ -37,6 +37,7 @@ están en curso y para quién, y cómo se pide y se adopta un cambio. Las reglas
 | Una sola regla para «el núcleo no está copiado en el árbol del programa» | Los dos | Sin decidir. Hoy cada programa tiene la suya en un test, y no dicen lo mismo |
 | Un solo test de las acciones de la CI (el suelo de cada acción) | Los dos | Sin decidir. Hoy está copiado en los tres repositorios, cada copia con su lista |
 | El lector DXF cuenta `skipped` por capa (en `DxfLayer`, como `entity_counts`), y no solo en todo el dibujo | OGR FEM2D | Sin pedir: no bloquea nada. FEM2D lo usaría para decir de qué capa viene cada entidad que el lector deja fuera (su nota del 2026-11-24 sobre la v0.2.8) |
+| Un programa congelado puede ser el hijo de un trabajo (hoy `_spawn` lanza `sys.executable -m ogr_core.api.jobs.worker`, que un congelado no entiende) | Los dos | Pedido por OGR FEM2D, sin prisa (su `CHANGELOG_v0.0.15.md`, «T36», «Para OGR-Core»): una función que el programa llame al empezar, como `multiprocessing.freeze_support`, o que el núcleo lance el hijo de otra manera cuando `sys.frozen`. Sin decidir. Hoy FEM2D lo resuelve en su punto de entrada |
 | Los tests que leen «todos los `.py`» no entran en las carpetas ocultas | Los dos | Arreglado aquí en la v0.2.3, en sus tests. OGR FEM2D lo arregló en su v0.0.5 (`a4965b7`). OGR Slip2D usa el mismo patrón y hoy no tiene ningún `.py` oculto: pendiente |
 
 Una fila sale de aquí cuando el cambio está en una versión etiquetada: desde entonces lo cuenta
