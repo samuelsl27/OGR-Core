@@ -4,7 +4,6 @@
 (2026-11-27, su 0.1.503, que fija `v0.2.12`), con las decisiones de la propietaria del mismo día.
 Cada ficha, en su rama y su PR; esta versión las reúne.
 
-*(En curso: las secciones se añaden con cada PR.)*
 
 ## D433 — la fuerza del retroanálisis es horizontal a propósito (documental)
 
@@ -162,12 +161,14 @@ Nada.
   contorno»): borrar una superficie anisótropa que lee una junta de un material Generalized
   Anisotropic se rechaza (`surface_in_use_refusal`, desde Slip2D 0.1.249), pero convertirla en
   otro tipo no se rechazaba, y la junta se quedaba sin orientación. Ahora `conversion_refusal`
-  la rechaza igual que el borrado.
-- **Sin cambiar, para que lo decida la propietaria**: un material con el modelo de nivel freático
-  y **sin** `water_surface_id` lee el primer nivel freático del modelo (`resolve_water_surface`,
-  la vuelta atrás heredada). Si ese nivel freático se convierte en línea piezométrica, el material
-  pierde su presión de poros igual que antes, porque no está enlazado por `id` y la regla no lo
-  ve. La regla B habla de los materiales enlazados.
+  la rechaza igual que el borrado. La propietaria lo confirmó el 2026-11-28.
+- **Encontrado al escribirlo, y añadido por decisión de la propietaria (2026-11-28)**: un material
+  con el modelo de nivel freático y **sin** `water_surface_id` lee el primer nivel freático del
+  modelo (`resolve_water_surface`, la vuelta atrás heredada). Si ese nivel freático se convertía en
+  línea piezométrica, el material perdía su presión de poros igual, porque no estaba enlazado por
+  `id` y la regla no lo veía. Ahora la regla lo mueve igual que a uno enlazado. Si sigue al
+  contorno, recibe el `id`, para seguir leyendo esa superficie. Si el contorno se borra o se
+  convierte en un tipo sin lector, se limpia.
 
 ### Qué cambia
 
@@ -182,6 +183,8 @@ Nada.
       anisótropo se limpia si el tipo nuevo no es una superficie anisótropa.
     - Solo los enlaces que el material lee. Un `water_surface_id` bajo Ru, una constante o un
       campo de elementos finitos no es de la conversión.
+    - Los materiales que la leen por la vuelta atrás (`_water_readers`, con
+      `materials_using_surface`), igual.
   - `relink_on_conversion(project, boundary, new_type)` aplica eso a los materiales y devuelve los
     cambios. **No sustituye el contorno**: eso lo hace quien llama, en su propio paso de deshacer.
   - `removal_link_changes(project, boundary_id)` y `unlink_on_removal(project, boundary_id)` son
@@ -210,6 +213,11 @@ Nada.
   - El borrado da los mismos cambios que la conversión sin lector.
   - Los avisos de los enlaces viejos salen con su texto.
   - La junta rechaza la conversión.
+  - Un material que lee el nivel freático por la vuelta atrás sigue a la línea piezométrica y
+    recibe el `id`, con u = 73,6 kPa; sin la regla, 0. Borrado o convertido en capa débil, se
+    limpia.
+
+  Son 18 tests con los de la vuelta atrás.
 
 ### Lo que tiene que cambiar cada programa (regla 10)
 
@@ -238,17 +246,19 @@ Nada.
 - **Una conversión cambia la polilínea**: un anillo cerrado pasa a abierto en los tipos que son
   líneas (nivel freático, línea piezométrica, capa débil…), y su segmento de cierre deja de
   contar. La pregunta va sobre la polilínea del contorno **convertido**.
-- **Encontrado y sin corregir (regla 6), para que lo decida la propietaria.** El saneador del DXF
-  (`ogr_core/dxf/sanitiser.py`, `_validate`) se queda con el exterior más grande cuando hay varios.
-  Si dos tienen **la misma área**, falla con
+- **Encontrado, informado y corregido por decisión de la propietaria (2026-11-28).** El saneador
+  del DXF (`ogr_core/dxf/sanitiser.py`, `_validate`) se queda con el exterior más grande cuando hay
+  varios. Si dos tenían **la misma área**, fallaba con
   `TypeError: '<' not supported between instances of 'DxfPolyline' and 'DxfPolyline'`, porque
-  `areas.sort(reverse=True)` compara las polilíneas al empatar. Lo da `preview()` con dos
-  rectángulos iguales en la capa del exterior. Es anterior a esta versión. Por ese saneador,
-  además, dos polilíneas de exterior en el DXF nunca llegan a `apply_to_project`.
-- **Sin cambiar, para que lo decida la propietaria**: importar sin sustituir el modelo una capa de
-  nivel freático, grieta o línea de desembalse en un modelo que ya tiene uno deja dos, igual que
-  el exterior. El pedido y la decisión hablan del exterior, y el agente tampoco comprueba los
-  otros.
+  `areas.sort(reverse=True)` comparaba las polilíneas al empatar. Lo daba `preview()` con dos
+  rectángulos iguales en la capa del exterior, y es anterior a esta versión. Ahora se ordena solo
+  por el área. Como el orden es estable, de dos iguales se queda el primero dibujado, y el
+  problema `external_multiple` se sigue anotando. Por ese saneador, además, dos polilíneas de
+  exterior en el DXF nunca llegan a `apply_to_project`.
+- **Ampliado por decisión de la propietaria (2026-11-28)**: importar sin sustituir el modelo una
+  capa de nivel freático, grieta o línea de desembalse en un modelo que ya tiene uno dejaba dos,
+  igual que el exterior. El agente tampoco lo comprobaba. Ahora `import_refusal` lo rechaza con
+  `import_single_instance`.
 
 ### Qué cambia
 
@@ -272,6 +282,18 @@ Nada.
     IMPORT_TWO_EXTERNAL = "The import leaves two External boundaries."
     IMPORT_TWO_EXTERNAL_HINT = "Use replace_model=true, or map only one layer to 'external'."
     ```
+- `import_refusal` pregunta lo mismo para los otros tipos de los que un modelo tiene uno solo:
+  nivel freático, grieta y línea de desembalse. El código es `import_single_instance`, después
+  del exterior. Los textos están en `IMPORT_TWO`, y el consejo, en `import_hint(btype)`, con el
+  `layer_kinds` del agente:
+
+  ```
+  The import leaves two Water Tables.
+  The import leaves two Tension Crack boundaries.
+  The import leaves two Drawdown Lines.
+  Use replace_model=true, or map only one layer to 'water_table'.   (y 'tension_crack', 'drawdown')
+  ```
+- `ogr_core/dxf/sanitiser.py`: dos exteriores de igual área ya no dan `TypeError`.
 - `tests/test_boundary_rules_d444_v0214.py`, 15 tests: las filas de la tabla de la ficha a nivel de
   regla, con estos controles:
   - un nivel freático sin otro puesto se acepta;
@@ -282,7 +304,13 @@ Nada.
   - con «sustituir el modelo», o en un modelo sin exterior, la importación se acepta;
   - una capa de material se acepta.
 
-  Contra el núcleo de antes fallan 13.
+  Contra el núcleo de antes fallan 13. Con las decisiones del 2026-11-28 se añaden 5 más:
+  - un segundo nivel freático, y su control (con «sustituir el modelo», o sin otro puesto);
+  - dos grietas en el archivo;
+  - el exterior se pregunta primero;
+  - el empate del saneador.
+
+  Son 20 en total.
 
 ### Lo que tiene que cambiar cada programa (regla 10)
 
@@ -294,7 +322,9 @@ Nada.
   - **Convertir contorno** ya pregunta `conversion_refusal`: la autointersección le llega sola;
   - el agente puede dejar sus dos comprobaciones propias y preguntar las del núcleo. Los textos
     son los mismos;
-  - los códigos nuevos de `Refusal` son `self_intersecting` e `import_two_external`.
+  - los códigos nuevos de `Refusal` son `self_intersecting`, `import_two_external` e
+    `import_single_instance`. Para el último, el texto es `IMPORT_TWO[btype]` y el consejo,
+    `import_hint(btype)`.
 - **OGR FEM2D**: nada obligatorio. Si añade contornos o importa DXF, las mismas reglas.
 
 ## D449 — el soldado de extremos funde una capa fina (decisión A + C)

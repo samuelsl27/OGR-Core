@@ -243,3 +243,58 @@ class TestAJointReadsTheSurface:
         assert why is not None
         assert why == surface_in_use_refusal(p, s.id)
         assert conversion_refusal(p, s, BT.ANISOTROPIC_SURFACE) is None
+
+
+class TestAMaterialThatReadsItByTheFallback:
+    """OGR Core 0.2.14, the owner's decision of 2026-11-28: a material on
+    the water-table model and with no surface of its own reads the first
+    water table (``resolve_water_surface``); the conversion and the
+    deletion move it by the same rule."""
+
+    @staticmethod
+    def _fallback():
+        p, wt, m = _demo()
+        m.water_surface_id = None
+        assert abs(_u(p, m) - _hydrostatic(p, 8.0)) < 1e-9   # the premise
+        return p, wt, m
+
+    def test_it_follows_and_gets_the_id(self):
+        from ogr_core.geometry import BoundaryType as BT
+        from ogr_core.materials import PorePressureType as PP
+        p, wt, m = self._fallback()
+        new, changes = _convert(p, wt, BT.PIEZOMETRIC)
+        assert [(c.material_id, c.change) for c in changes] == [
+            (m.id, "followed")]
+        assert m.water_surface_id == new.id
+        assert m.pore_pressure == PP.PIEZO_LINE
+        assert abs(_u(p, m) - _hydrostatic(p, 8.0)) < 1e-9
+
+    def test_without_it_it_was_zero(self):
+        from ogr_core.geometry import BoundaryType as BT
+        from ogr_core.geometry.transforms import convert_boundary
+        p, wt, m = self._fallback()
+        p.boundaries[p.boundaries.index(wt)] = convert_boundary(
+            wt, BT.PIEZOMETRIC)
+        assert _u(p, m) == 0.0
+
+    def test_into_a_weak_layer_and_deleted_it_is_cleared(self):
+        from ogr_core.geometry import BoundaryType as BT
+        from ogr_core.materials import PorePressureType as PP
+        from ogr_core.project.rules import (conversion_link_changes,
+                                            removal_link_changes,
+                                            unlink_on_removal)
+        p, wt, m = self._fallback()
+        planned = removal_link_changes(p, wt.id)
+        assert conversion_link_changes(p, wt.id, BT.WEAK_LAYER) == planned
+        assert [(c.material_id, c.change) for c in planned] == [
+            (m.id, "cleared")]
+        unlink_on_removal(p, wt.id)
+        assert m.pore_pressure == PP.NONE and m.water_surface_id is None
+
+    def test_a_material_of_another_model_is_not_a_reader(self):
+        from ogr_core.geometry import BoundaryType as BT
+        from ogr_core.materials import PorePressureType as PP
+        from ogr_core.project.rules import conversion_link_changes
+        p, wt, m = self._fallback()
+        m.pore_pressure = PP.PIEZO_LINE
+        assert conversion_link_changes(p, wt.id, BT.WEAK_LAYER) == []

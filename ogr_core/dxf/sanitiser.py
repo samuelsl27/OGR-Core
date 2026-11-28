@@ -465,7 +465,10 @@ class GeometrySanitiser:
             rep.add_coded_problem("external_missing")
         elif len(ext) > 1:
             areas = [(abs(_signed_area(e.points)), e) for e in ext]
-            areas.sort(reverse=True)
+            # OGR Core 0.2.14 -- by the area alone: with two of the same
+            # area the sort compared the polylines and raised a TypeError.
+            # Stable, so of two equal ones the first drawn is kept.
+            areas.sort(key=lambda t: t[0], reverse=True)
             rep.add_coded_problem(
                 "external_multiple", areas[1][1].points[0][0],
                 areas[1][1].points[0][1], count=len(ext))

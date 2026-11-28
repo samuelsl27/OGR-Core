@@ -150,8 +150,8 @@ def _dxf(tmp, *layers):
     import ezdxf
     path = os.path.join(tmp, "ground.dxf")
     doc = ezdxf.new()
-    for layer, pts in layers:
-        doc.modelspace().add_lwpolyline(pts, close=True,
+    for layer, pts, *closed in layers:
+        doc.modelspace().add_lwpolyline(pts, close=closed != [False],
                                         dxfattribs={"layer": layer})
     doc.saveas(path)
     return path
@@ -221,3 +221,76 @@ class TestAnImport:
             _demo(), False, ("LENS", [(30, 2), (32, 2), (32, 3), (30, 3)]),
             kinds={"LENS": DxfEntityKind.MATERIAL})
         assert why is None
+
+
+class TestTheOtherSingleTypes:
+    """OGR Core 0.2.14, the owner's decision of 2026-11-28: a second water
+    table, tension crack or drawdown line by an import is refused too."""
+
+    WT = ("WT", [(0, 12), (25, 11), (50, 10)], False)
+
+    def _ask(self, project, replace, *layers, kinds):
+        return TestAnImport._ask(self, project, replace, *layers,
+                                 kinds=kinds)
+
+    def test_a_second_water_table(self):
+        from ogr_core.dxf.reader import DxfEntityKind as K
+        from ogr_core.geometry import BoundaryType as BT
+        from ogr_core.project.rules import IMPORT_TWO, import_hint
+        why, _pv, _o = self._ask(_demo(), False, self.WT,
+                                 kinds={"WT": K.WATER_TABLE})
+        assert (why.code, why.message) == (
+            "import_single_instance", "The import leaves two Water Tables.")
+        assert IMPORT_TWO[BT.WATER_TABLE] == why.message
+        assert import_hint(BT.WATER_TABLE) == (
+            "Use replace_model=true, or map only one layer to "
+            "'water_table'.")
+
+    def test_the_control_replacing_or_with_none_in_place(self):
+        from ogr_core.dxf.reader import DxfEntityKind as K
+        from ogr_core.geometry import BoundaryType as BT
+        kinds = {"WT": K.WATER_TABLE}
+        assert self._ask(_demo(), True, self.WT, kinds=kinds)[0] is None
+        p = _demo()
+        p.boundaries = [b for b in p.boundaries
+                        if b.btype != BT.WATER_TABLE]
+        assert self._ask(p, False, self.WT, kinds=kinds)[0] is None
+
+    def test_two_tension_cracks_in_the_file(self):
+        from ogr_core.dxf.reader import DxfEntityKind as K
+        kinds = {"TC": K.TENSION_CRACK}
+        one = ("TC", [(5, 20), (45, 20)], False)
+        two = ("TC", [(5, 22), (45, 22)], False)
+        assert self._ask(_demo(), False, one, kinds=kinds)[0] is None
+        why, _pv, _o = self._ask(_demo(), False, one, two, kinds=kinds)
+        assert (why.code, why.message) == (
+            "import_single_instance",
+            "The import leaves two Tension Crack boundaries.")
+
+    def test_the_external_is_asked_first(self):
+        from ogr_core.dxf.reader import DxfEntityKind as K
+        why, _pv, _o = self._ask(
+            _demo(), False, ("GROUND", EXT), self.WT,
+            kinds={"GROUND": K.EXTERNAL, "WT": K.WATER_TABLE})
+        assert why.code == "import_two_external"
+
+
+class TestTheSanitiserTie:
+    """OGR Core 0.2.14 -- two External polylines of the same area raised a
+    TypeError in the sanitiser (the sort compared the polylines)."""
+
+    def test_two_of_the_same_area(self):
+        from ogr_core.dxf.importer import ImportOptions, preview
+        from ogr_core.dxf.reader import DxfEntityKind as K
+        same = [(100, 0), (160, 0), (160, 20), (100, 30)]
+        with tempfile.TemporaryDirectory() as tmp:
+            opts = ImportOptions(replace_model=True,
+                                 layer_kinds={"GROUND": K.EXTERNAL})
+            pv = preview(_dxf(tmp, ("GROUND", EXT), ("GROUND", same)), opts)
+        assert pv.ok
+        kept = pv.sanitised[K.EXTERNAL]
+        assert len(kept) == 1
+        # the first drawn is kept
+        assert min(x for x, _y in kept[0].points) == 0
+        assert "external_multiple" in [p["kind"]
+                                       for p in pv.report.problems]
