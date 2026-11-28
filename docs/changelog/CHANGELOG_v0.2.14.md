@@ -395,3 +395,34 @@ Nada.
   - la muestra del código nuevo en `test_core_messages_v1333.py` y su castellano.
 - **OGR FEM2D**: las regiones de un modelo con dos contactos así cambian igual, y su malla con
   ellas. Su suite contra este núcleo lo dirá.
+
+
+## Pruebas
+
+| Qué | Resultado |
+|---|---|
+| Suite del núcleo entera, `--jobs 4` (Windows), en `0b3f0dc` y otra vez con la versión 0.2.14 | 1072 de 1072, sin fugas, código 0 |
+| CI de las PR 51 a 56 (Linux) | Las tres Python del núcleo y la suite de OGR FEM2D, en verde. La de OGR Slip2D, con los dos únicos fallos esperados de `test_core_messages_v1333.py` (`test_the_entries_have_the_fields` y `test_the_samples_cover_every_code_and_both_numbers`): los códigos nuevos de `RULES` aún sin su castellano en el `main` de Slip2D. Con la decisión A de la propietaria se fusionaron así |
+
+**La regla 8**, el 2026-11-28 en Windows:
+
+| Qué | Resultado |
+|---|---|
+| OGR Slip2D `efaa846` (fija `v0.2.12`, con el castellano y las muestras de los 10 códigos nuevos) **entera**, con `--jobs 4`, `--dev-core` y fuera de pantalla, contra `0b3f0dc` (08:17–08:23) | 7673 casos: 7671 pasan, 0 fallos, 2 saltados, ninguna fuga, ningún tramo caído, código 0. `shared: ogr_core 0.2.14.dev0 … @ 0b3f0dc`, `DEV CORE` antes y después. Los dos árboles, limpios antes y después, y ninguna otra suite a la vez. La corrió la sesión de Slip2D |
+| OGR FEM2D `ad5aa34` (rama `dev/modelador`, fija `v0.2.13`) **entera**, con `--dev-core` y fuera de pantalla, contra `e368220` | 856 casos: 856 pasan, 0 fallos, ninguna fuga, código 0. `shared: ogr_core 0.2.14.dev0 … @ e368220`, `DEV CORE` antes y después. Su árbol tenía cinco archivos sin confirmar, todos de documentación (`docs/changelog/CHANGELOG_v0.0.15.md` y cuatro de `spec/`), ningún `.py`. La corrió esta sesión |
+
+`e368220`, el commit de fusión de la PR 56, tiene el mismo árbol que `0b3f0dc`. El commit de la
+etiqueta cambia además el número de versión y este changelog.
+
+De la corrida de Slip2D:
+
+- **D446**: ningún test de Slip2D fijaba un texto del informe con una coordenada entera; no
+  declara nada.
+- **D445 y D449**: ningún test falló por el borrado por identidad ni por las regiones nuevas de 005
+  y 006 (Talbingo). El cambio de regiones lo declara Slip2D en su versión de D449.
+- `rule.boundary_label` y `rule.boundary_label_named` (`{kind} #{n}`, `'{name}' ({kind} #{n})`) no
+  llevan palabras propias y no tienen entrada en su diccionario: el tipo se traduce al mostrarse.
+- Quedan para cuando Slip2D suba su fijación: el castellano de los `Refusal` nuevos
+  (`SELF_INTERSECTING`, `IMPORT_TWO_EXTERNAL`, `IMPORT_TWO`, `import_hint`), con su versión de
+  D444; el caso con talud arriba de `tests/test_report_seismic_v1449.py` que pedía la 0.2.13, y su
+  fila de `docs/consumidores.md`.
